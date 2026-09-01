@@ -73,7 +73,8 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
         String hostDomain = resolveHostDomain(request);
 
         // Allow internal control-plane management APIs and static resources to pass directly to Spring Security
-        if (isStaticResource(path) || isInternalControlPlaneApi(path)) {
+        // UNLESS they contain query string payloads (which might be attacks against UI routers)
+        if (isInternalControlPlaneApi(path) || (isStaticResource(path) && (queryString == null || queryString.trim().isEmpty()))) {
             filterChain.doFilter(request, response);
             return;
         }
