@@ -345,12 +345,12 @@
                     <!-- Search Input -->
                     <div class="relative lg:col-span-2">
                         <i data-lucide="search" class="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2"></i>
-                        <input type="text" id="filter-search" oninput="applyIncidentFilters()" placeholder="Filter by IP, Country, Rule, Payload snippet..." class="w-full pl-8 pr-3 py-1.5 bg-gray-900 border border-gray-700/80 rounded-lg text-gray-200 text-xs font-mono placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition">
+                        <input type="text" id="filter-search" oninput="applyIncidentFilters(true)" placeholder="Filter by IP, Country, Rule, Payload snippet..." class="w-full pl-8 pr-3 py-1.5 bg-gray-900 border border-gray-700/80 rounded-lg text-gray-200 text-xs font-mono placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition">
                     </div>
 
                     <!-- Threat Type Filter -->
                     <div>
-                        <select id="filter-threat-type" onchange="applyIncidentFilters()" class="w-full bg-gray-900 border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition">
+                        <select id="filter-threat-type" onchange="applyIncidentFilters(true)" class="w-full bg-gray-900 border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition">
                             <option value="">All Attack Vectors</option>
                             <option value="SQL_INJECTION">SQL Injection (SQLi)</option>
                             <option value="XSS">Cross-Site Scripting (XSS)</option>
@@ -368,7 +368,7 @@
 
                     <!-- Severity Filter -->
                     <div>
-                        <select id="filter-severity" onchange="applyIncidentFilters()" class="w-full bg-gray-900 border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition">
+                        <select id="filter-severity" onchange="applyIncidentFilters(true)" class="w-full bg-gray-900 border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition">
                             <option value="">All Severities</option>
                             <option value="CRITICAL">Critical Severity</option>
                             <option value="HIGH">High Severity</option>
@@ -379,7 +379,7 @@
 
                     <!-- 6-Month Time Window Retention Filter -->
                     <div>
-                        <select id="filter-time-range" onchange="fetchLiveIncidents()" class="w-full bg-gray-900 border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-cyan-300 text-xs font-mono focus:outline-none focus:border-cyan-500 transition font-bold">
+                        <select id="filter-time-range" onchange="fetchLiveIncidents(true)" class="w-full bg-gray-900 border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-cyan-300 text-xs font-mono focus:outline-none focus:border-cyan-500 transition font-bold">
                             <option value="all">📅 All History (6 Months)</option>
                             <option value="24h">⚡ Last 24 Hours</option>
                             <option value="7d">🗓️ Last 7 Days</option>
@@ -391,7 +391,7 @@
 
                     <!-- Target Domain Filter & Reset -->
                     <div class="flex gap-1.5">
-                        <select id="filter-domain" onchange="applyIncidentFilters()" class="flex-1 bg-gray-900 border border-gray-700/80 rounded-lg px-2 py-1.5 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition truncate">
+                        <select id="filter-domain" onchange="applyIncidentFilters(true)" class="flex-1 bg-gray-900 border border-gray-700/80 rounded-lg px-2 py-1.5 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition truncate">
                             <option value="">All Monitored Domains</option>
                         </select>
                         <button onclick="resetIncidentFilters()" title="Reset All Filters" class="px-2.5 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-400 hover:text-white rounded-lg transition active:scale-95 shrink-0 flex items-center gap-1">
@@ -417,6 +417,43 @@
                             <!-- Populated via JS -->
                         </tbody>
                     </table>
+                </div>
+
+                <!-- Threat Radar Pagination Footer Bar -->
+                <div id="incidents-pagination-footer" class="p-3 bg-gray-950/90 border-t border-gray-800 flex flex-col md:flex-row items-center justify-between gap-3 text-xs font-mono">
+                    <!-- Left: Showing items range -->
+                    <div class="text-gray-400 text-center md:text-left text-[11px] sm:text-xs">
+                        Showing <span id="pag-start" class="font-bold text-cyan-400">1</span> to <span id="pag-end" class="font-bold text-cyan-400">10</span> of <span id="pag-total" class="font-bold text-white">0</span> incidents
+                    </div>
+
+                    <!-- Center: Page Size Selector & Jump to Page Dropdown -->
+                    <div class="flex items-center gap-2.5 sm:gap-4 flex-wrap justify-center">
+                        <!-- Rows Per Page -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-gray-400 text-[11px]">Rows:</span>
+                            <select id="pag-page-size" onchange="changePageSize()" class="bg-gray-900 border border-gray-700/80 rounded-lg px-2 py-1 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500">
+                                <option value="5">5</option>
+                                <option value="10" selected>10</option>
+                                <option value="20">20</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+
+                        <!-- Page Dropdown -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-gray-400 text-[11px]">Page:</span>
+                            <select id="pag-page-select" onchange="goToPageFromSelect()" class="bg-gray-900 border border-gray-700/80 rounded-lg px-2.5 py-1 text-cyan-400 font-bold text-xs font-mono focus:outline-none focus:border-cyan-500">
+                                <option value="1">1</option>
+                            </select>
+                            <span class="text-gray-400 text-[11px]">of <span id="pag-total-pages" class="text-gray-200 font-bold">1</span></span>
+                        </div>
+                    </div>
+
+                    <!-- Right: Numbered Pagination Buttons -->
+                    <div class="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5" id="pag-numbers-container">
+                        <!-- Dynamic page number buttons populated via JS -->
+                    </div>
                 </div>
             </div>
         </section>
@@ -917,6 +954,9 @@
         let countryChart = null;
         let cachedPresets = [];
         let allIncidents = [];
+        let incidentPage = 1;
+        let incidentPageSize = 10;
+        let filteredIncidentsCache = [];
         let syncCountdown = 5;
 
         // Initialize on load
@@ -1290,14 +1330,14 @@
         }
 
         // Live Incident Feed & Radar Filters (with 6-month time range support)
-        async function fetchLiveIncidents() {
+        async function fetchLiveIncidents(resetPage = false) {
             try {
                 const timeRange = document.getElementById('filter-time-range')?.value || 'all';
                 const res = await fetch(`/api/dashboard/live-feed?timeRange=${timeRange}&limit=200`, { headers: getAuthHeaders() });
                 if (res.ok) {
                     allIncidents = await res.json();
                     updateDomainFilterDropdown();
-                    applyIncidentFilters();
+                    applyIncidentFilters(resetPage);
                 }
             } catch (e) {
                 console.error("Live feed error", e);
@@ -1378,13 +1418,16 @@
             });
         }
 
-        function applyIncidentFilters() {
+        function applyIncidentFilters(resetPage = false) {
+            if (resetPage) {
+                incidentPage = 1;
+            }
             const searchInput = (document.getElementById('filter-search')?.value || '').toLowerCase().trim();
             const threatType = document.getElementById('filter-threat-type')?.value || '';
             const severity = document.getElementById('filter-severity')?.value || '';
             const domain = (document.getElementById('filter-domain')?.value || '').toLowerCase().trim();
 
-            const filtered = allIncidents.filter(inc => {
+            filteredIncidentsCache = allIncidents.filter(inc => {
                 if (threatType && inc.threatType !== threatType) return false;
                 if (severity && inc.threatSeverity !== severity) return false;
                 if (domain && inc.domainName && inc.domainName.toLowerCase() !== domain) return false;
@@ -1402,13 +1445,51 @@
                 return true;
             });
 
+            renderIncidentPage();
+        }
+
+        function renderIncidentPage() {
+            const totalItems = filteredIncidentsCache.length;
+            const totalPages = Math.max(1, Math.ceil(totalItems / incidentPageSize));
+
+            if (incidentPage > totalPages) incidentPage = totalPages;
+            if (incidentPage < 1) incidentPage = 1;
+
+            const startIdx = totalItems === 0 ? 0 : (incidentPage - 1) * incidentPageSize;
+            const endIdx = Math.min(startIdx + incidentPageSize, totalItems);
+            const pageData = totalItems === 0 ? [] : filteredIncidentsCache.slice(startIdx, endIdx);
+
             // Update incident counter badge
             const counter = document.getElementById('filtered-incident-count');
             if (counter) {
-                if (filtered.length === allIncidents.length) {
+                if (totalItems === allIncidents.length) {
                     counter.innerText = `${allIncidents.length} Neutralized Events`;
                 } else {
-                    counter.innerText = `Showing ${filtered.length} of ${allIncidents.length} (Filtered)`;
+                    counter.innerText = `Showing ${totalItems} of ${allIncidents.length} (Filtered)`;
+                }
+            }
+
+            // Update Pagination Range Text & Totals
+            const pagStart = document.getElementById('pag-start');
+            const pagEnd = document.getElementById('pag-end');
+            const pagTotal = document.getElementById('pag-total');
+            const pagTotalPages = document.getElementById('pag-total-pages');
+
+            if (pagStart) pagStart.innerText = totalItems === 0 ? '0' : (startIdx + 1);
+            if (pagEnd) pagEnd.innerText = endIdx;
+            if (pagTotal) pagTotal.innerText = totalItems;
+            if (pagTotalPages) pagTotalPages.innerText = totalPages;
+
+            // Update Jump-to-Page Dropdown
+            const pageSelect = document.getElementById('pag-page-select');
+            if (pageSelect) {
+                pageSelect.innerHTML = '';
+                for (let i = 1; i <= totalPages; i++) {
+                    const opt = document.createElement('option');
+                    opt.value = i;
+                    opt.innerText = `Page ${i}`;
+                    if (i === incidentPage) opt.selected = true;
+                    pageSelect.appendChild(opt);
                 }
             }
 
@@ -1416,38 +1497,130 @@
             const tbody = document.getElementById('incidents-table-body');
             tbody.innerHTML = '';
 
-            if (filtered.length === 0) {
+            if (pageData.length === 0) {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `<td colspan="7" class="p-6 text-center text-gray-500 font-mono text-xs">No security incidents matched the active filter parameters.</td>`;
                 tbody.appendChild(tr);
-                return;
+            } else {
+                pageData.forEach(inc => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-800/40 transition";
+
+                    const dateObj = new Date(inc.timestamp);
+                    const isToday = new Date().toDateString() === dateObj.toDateString();
+                    const timeStr = isToday
+                        ? dateObj.toLocaleTimeString()
+                        : `${dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+                    const flag = inc.clientCountryCode === 'IN' ? '🇮🇳' : inc.clientCountryCode === 'US' ? '🇺🇸' : inc.clientCountryCode === 'DE' ? '🇩🇪' : inc.clientCountryCode === 'RU' ? '🇷🇺' : inc.clientCountryCode === 'CN' ? '🇨🇳' : inc.clientCountryCode === 'GB' ? '🇬🇧' : '🌐';
+
+                    const sevColor = inc.threatSeverity === 'CRITICAL' ? 'text-red-400 bg-red-950/80 border-red-800' : (inc.threatSeverity === 'HIGH' ? 'text-orange-400 bg-orange-950/80 border-orange-800' : 'text-amber-400 bg-amber-950/80 border-amber-800');
+
+                    tr.innerHTML = `
+                        <td class="p-3 text-gray-400 whitespace-nowrap">${timeStr}</td>
+                        <td class="p-3 font-bold text-gray-200 truncate max-w-[140px] sm:max-w-none" title="${inc.domainName}">${inc.domainName}</td>
+                        <td class="p-3 text-cyan-300 whitespace-nowrap">${flag} ${inc.clientIp}</td>
+                        <td class="p-3"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950 text-red-400 border border-red-800">${inc.threatType}</span></td>
+                        <td class="p-3 font-bold"><span class="px-1.5 py-0.5 rounded text-[10px] font-mono border ${sevColor}">${inc.threatScore}/100</span></td>
+                        <td class="p-3 font-bold text-red-400 whitespace-nowrap">${inc.actionTaken}</td>
+                        <td class="p-3 text-gray-400 truncate max-w-[150px] sm:max-w-xs" title="${inc.rawPayloadSnippet || ''}">${inc.matchedRule || 'WAF_RULE'}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
             }
 
-            filtered.forEach(inc => {
-                const tr = document.createElement('tr');
-                tr.className = "hover:bg-gray-800/40 transition";
+            renderPaginationButtons(totalPages);
+        }
 
-                const dateObj = new Date(inc.timestamp);
-                const isToday = new Date().toDateString() === dateObj.toDateString();
-                const timeStr = isToday
-                    ? dateObj.toLocaleTimeString()
-                    : `${dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        function renderPaginationButtons(totalPages) {
+            const container = document.getElementById('pag-numbers-container');
+            if (!container) return;
+            container.innerHTML = '';
 
-                const flag = inc.clientCountryCode === 'IN' ? '🇮🇳' : inc.clientCountryCode === 'US' ? '🇺🇸' : inc.clientCountryCode === 'DE' ? '🇩🇪' : inc.clientCountryCode === 'RU' ? '🇷🇺' : inc.clientCountryCode === 'CN' ? '🇨🇳' : inc.clientCountryCode === 'GB' ? '🇬🇧' : '🌐';
+            // First button (<<)
+            const btnFirst = document.createElement('button');
+            btnFirst.className = `px-2 py-1 rounded text-xs transition ${incidentPage === 1 ? 'bg-gray-900/40 text-gray-600 cursor-not-allowed border border-gray-800/50' : 'bg-gray-900 hover:bg-gray-800 text-gray-300 border border-gray-800 hover:text-white active:scale-95'}`;
+            btnFirst.innerHTML = `&laquo;`;
+            btnFirst.title = "First Page";
+            btnFirst.disabled = incidentPage === 1;
+            btnFirst.onclick = () => goToIncidentPage(1);
+            container.appendChild(btnFirst);
 
-                const sevColor = inc.threatSeverity === 'CRITICAL' ? 'text-red-400 bg-red-950/80 border-red-800' : (inc.threatSeverity === 'HIGH' ? 'text-orange-400 bg-orange-950/80 border-orange-800' : 'text-amber-400 bg-amber-950/80 border-amber-800');
+            // Prev button (< Prev)
+            const btnPrev = document.createElement('button');
+            btnPrev.className = `px-2.5 py-1 rounded text-xs transition ${incidentPage === 1 ? 'bg-gray-900/40 text-gray-600 cursor-not-allowed border border-gray-800/50' : 'bg-gray-900 hover:bg-gray-800 text-gray-300 border border-gray-800 hover:text-white active:scale-95'}`;
+            btnPrev.innerHTML = `&lsaquo; Prev`;
+            btnPrev.title = "Previous Page";
+            btnPrev.disabled = incidentPage === 1;
+            btnPrev.onclick = () => goToIncidentPage(incidentPage - 1);
+            container.appendChild(btnPrev);
 
-                tr.innerHTML = `
-                    <td class="p-3 text-gray-400 whitespace-nowrap">${timeStr}</td>
-                    <td class="p-3 font-bold text-gray-200 truncate max-w-[140px] sm:max-w-none" title="${inc.domainName}">${inc.domainName}</td>
-                    <td class="p-3 text-cyan-300 whitespace-nowrap">${flag} ${inc.clientIp}</td>
-                    <td class="p-3"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950 text-red-400 border border-red-800">${inc.threatType}</span></td>
-                    <td class="p-3 font-bold"><span class="px-1.5 py-0.5 rounded text-[10px] font-mono border ${sevColor}">${inc.threatScore}/100</span></td>
-                    <td class="p-3 font-bold text-red-400 whitespace-nowrap">${inc.actionTaken}</td>
-                    <td class="p-3 text-gray-400 truncate max-w-[150px] sm:max-w-xs" title="${inc.rawPayloadSnippet || ''}">${inc.matchedRule || 'WAF_RULE'}</td>
-                `;
-                tbody.appendChild(tr);
+            // Numbered buttons
+            const pageNumbers = getPageNumbersList(incidentPage, totalPages);
+            pageNumbers.forEach(p => {
+                if (p === '...') {
+                    const span = document.createElement('span');
+                    span.className = "px-1.5 py-1 text-gray-500 text-xs font-bold select-none";
+                    span.innerText = '...';
+                    container.appendChild(span);
+                } else {
+                    const btn = document.createElement('button');
+                    const isActive = p === incidentPage;
+                    btn.className = `min-w-[28px] px-2.5 py-1 rounded text-xs font-bold transition ${isActive ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30 border border-cyan-500' : 'bg-gray-900 hover:bg-gray-800 text-gray-300 border border-gray-800 hover:text-white active:scale-95'}`;
+                    btn.innerText = p;
+                    btn.onclick = () => goToIncidentPage(p);
+                    container.appendChild(btn);
+                }
             });
+
+            // Next button (Next >)
+            const btnNext = document.createElement('button');
+            btnNext.className = `px-2.5 py-1 rounded text-xs transition ${incidentPage === totalPages ? 'bg-gray-900/40 text-gray-600 cursor-not-allowed border border-gray-800/50' : 'bg-gray-900 hover:bg-gray-800 text-gray-300 border border-gray-800 hover:text-white active:scale-95'}`;
+            btnNext.innerHTML = `Next &rsaquo;`;
+            btnNext.title = "Next Page";
+            btnNext.disabled = incidentPage === totalPages;
+            btnNext.onclick = () => goToIncidentPage(incidentPage + 1);
+            container.appendChild(btnNext);
+
+            // Last button (>>)
+            const btnLast = document.createElement('button');
+            btnLast.className = `px-2 py-1 rounded text-xs transition ${incidentPage === totalPages ? 'bg-gray-900/40 text-gray-600 cursor-not-allowed border border-gray-800/50' : 'bg-gray-900 hover:bg-gray-800 text-gray-300 border border-gray-800 hover:text-white active:scale-95'}`;
+            btnLast.innerHTML = `&raquo;`;
+            btnLast.title = "Last Page";
+            btnLast.disabled = incidentPage === totalPages;
+            btnLast.onclick = () => goToIncidentPage(totalPages);
+            container.appendChild(btnLast);
+        }
+
+        function getPageNumbersList(current, total) {
+            if (total <= 7) {
+                return Array.from({ length: total }, (_, i) => i + 1);
+            }
+            if (current <= 4) {
+                return [1, 2, 3, 4, 5, '...', total];
+            }
+            if (current >= total - 3) {
+                return [1, '...', total - 4, total - 3, total - 2, total - 1, total];
+            }
+            return [1, '...', current - 1, current, current + 1, '...', total];
+        }
+
+        function goToIncidentPage(page) {
+            incidentPage = page;
+            renderIncidentPage();
+        }
+
+        function changePageSize() {
+            const sizeSelect = document.getElementById('pag-page-size');
+            incidentPageSize = parseInt(sizeSelect.value, 10) || 10;
+            incidentPage = 1;
+            renderIncidentPage();
+        }
+
+        function goToPageFromSelect() {
+            const select = document.getElementById('pag-page-select');
+            const selectedPage = parseInt(select.value, 10) || 1;
+            goToIncidentPage(selectedPage);
         }
 
         function resetIncidentFilters() {
@@ -1463,7 +1636,8 @@
             if (domain) domain.value = '';
             if (timeRange) timeRange.value = 'all';
 
-            fetchLiveIncidents();
+            incidentPage = 1;
+            fetchLiveIncidents(true);
         }
 
         // Red Team Attack Presets
