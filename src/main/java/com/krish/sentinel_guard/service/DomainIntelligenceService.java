@@ -130,6 +130,7 @@ public class DomainIntelligenceService {
         return domainRepository.findAll();
     }
 
+    @Transactional
     public void deleteDomain(Long id) {
         domainRepository.deleteById(id);
     }

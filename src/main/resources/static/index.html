@@ -715,6 +715,52 @@
         </div>
     </div>
 
+    <!-- Modal: Confirmation to Delete/Remove Monitored Domain -->
+    <div id="modal-confirm-delete-domain" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 hidden">
+        <div class="bg-gray-900 border border-red-900/60 rounded-2xl max-w-md w-full p-5 sm:p-6 space-y-4 shadow-2xl shadow-red-950/40 relative overflow-hidden">
+            <!-- Red alert top accent line -->
+            <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-rose-500 to-orange-500"></div>
+
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-xl bg-red-950 border border-red-800 text-red-400 flex items-center justify-center shrink-0 shadow-lg shadow-red-950/50">
+                    <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h3 class="font-bold text-white text-base">Remove Monitored Domain?</h3>
+                    <p class="text-xs text-gray-400 mt-0.5">This action requires confirmation.</p>
+                </div>
+                <button onclick="closeDeleteDomainModal()" class="text-gray-400 hover:text-white p-1 rounded-lg transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <!-- Target Domain Card Details -->
+            <div class="bg-gray-950 border border-gray-800 rounded-xl p-3.5 space-y-1.5 font-mono text-xs">
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400 text-[11px]">Domain:</span>
+                    <span id="delete-domain-name" class="font-bold text-red-400 truncate max-w-[200px]">--</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400 text-[11px]">Label:</span>
+                    <span id="delete-domain-label" class="text-gray-200 truncate max-w-[200px]">--</span>
+                </div>
+            </div>
+
+            <p class="text-xs text-gray-300 leading-relaxed">
+                Removing this domain will stop automated DNS, WHOIS, and SSL expiration surveillance. Historical exploit telemetry for this domain will remain archived in your 6-month retention logs.
+            </p>
+
+            <div class="flex gap-2.5 pt-2">
+                <button onclick="closeDeleteDomainModal()" class="flex-1 py-2.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-300 text-xs font-semibold rounded-lg transition">
+                    Cancel
+                </button>
+                <button onclick="confirmExecuteDeleteDomain()" id="btn-confirm-delete-domain" class="flex-1 py-2.5 bg-red-600 hover:bg-red-500 active:scale-95 text-white text-xs font-bold rounded-lg shadow-lg shadow-red-600/30 flex items-center justify-center gap-1.5 transition">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Yes, Remove Domain
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Deep-Dive Domain Intelligence Drawer -->
     <div id="modal-domain-details" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-2.5 sm:p-4 hidden">
         <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-3xl w-full p-4 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
@@ -726,6 +772,9 @@
                 <div class="flex items-center gap-2">
                     <button onclick="rescanCurrentDomain()" id="btn-rescan-domain" class="px-2.5 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-xs rounded-lg flex items-center gap-1 transition active:scale-95">
                         <i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-Scan Intel
+                    </button>
+                    <button onclick="promptDeleteCurrentViewingDomain()" class="px-2.5 py-1 bg-red-950/70 hover:bg-red-900 border border-red-800 text-red-300 text-xs rounded-lg flex items-center gap-1 transition active:scale-95" title="Remove domain">
+                        <i data-lucide="trash-2" class="w-3 h-3"></i> Remove
                     </button>
                     <button onclick="closeDomainDetailsModal()" class="text-gray-400 hover:text-white p-1">
                         <i data-lucide="x" class="w-5 h-5"></i>
@@ -1144,6 +1193,9 @@
                     }
                 }
             });
+            if (tabId === 'domains') loadDomains();
+            else if (tabId === 'firewall') loadBannedIps();
+            else if (tabId === 'audit') loadAuditTrail();
             lucide.createIcons();
         }
 
@@ -1559,7 +1611,7 @@
 
                     domains.forEach(d => {
                         const card = document.createElement('div');
-                        card.className = "bg-gray-900/90 border border-gray-800 rounded-xl p-4 sm:p-5 space-y-3 sm:space-y-4 hover:border-gray-700 transition flex flex-col justify-between";
+                        card.className = "bg-gray-900/90 border border-gray-800 rounded-xl p-4 sm:p-5 space-y-3 sm:space-y-4 hover:border-gray-700 transition flex flex-col justify-between relative group";
 
                         card.innerHTML = `
                             <div>
@@ -1568,7 +1620,9 @@
                                         <h4 class="font-bold text-white text-sm sm:text-base truncate">${d.displayName || d.domainName}</h4>
                                         <p class="text-xs text-cyan-400 font-mono truncate">${d.domainName}</p>
                                     </div>
-                                    <span class="px-1.5 py-0.5 text-[9px] sm:text-[10px] font-mono font-bold rounded shrink-0 ${d.healthStatus === 'HEALTHY' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}">${d.healthStatus || 'HEALTHY'}</span>
+                                    <div class="flex items-center gap-1.5 shrink-0">
+                                        <span class="px-1.5 py-0.5 text-[9px] sm:text-[10px] font-mono font-bold rounded ${d.healthStatus === 'HEALTHY' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}">${d.healthStatus || 'HEALTHY'}</span>
+                                    </div>
                                 </div>
 
                                 <div class="space-y-1 text-xs text-gray-400 font-mono mt-3">
@@ -1578,13 +1632,23 @@
                                 </div>
                             </div>
 
-                            <div class="flex items-center justify-between pt-3 border-t border-gray-800 text-xs">
-                                <span class="text-red-400 font-mono text-[11px]">${d.blockedRequests || 0} Blocked</span>
-                                <button onclick="openDomainDetails(${d.id})" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-200 rounded font-medium text-xs transition">Deep-Dive</button>
+                            <div class="flex items-center justify-between pt-3 border-t border-gray-800 text-xs gap-2">
+                                <span class="text-red-400 font-mono text-[11px] truncate">${d.blockedRequests || 0} Blocked</span>
+                                <div class="flex items-center gap-2 shrink-0">
+                                    <button onclick="openDomainDetails(${d.id})" class="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-200 hover:text-white rounded-lg font-medium text-xs transition flex items-center gap-1">
+                                        <svg class="w-3 h-3 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                        Deep-Dive
+                                    </button>
+                                    <button onclick="promptDeleteDomain(${d.id}, '${escapeJs(d.domainName)}', '${escapeJs(d.displayName || d.domainName)}')" class="px-2.5 py-1.5 bg-red-950/70 hover:bg-red-900 active:scale-95 text-red-400 hover:text-red-200 border border-red-800/80 rounded-lg font-medium text-xs flex items-center gap-1 transition" title="Remove this monitored domain">
+                                        <svg class="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                        Remove
+                                    </button>
+                                </div>
                             </div>
                         `;
                         grid.appendChild(card);
                     });
+                    lucide.createIcons();
                 }
             } catch (e) {
                 console.error("Domains load error", e);
@@ -1592,6 +1656,72 @@
         }
 
         let currentViewingDomainId = null;
+        let currentViewingDomainName = '';
+        let currentViewingDomainLabel = '';
+        let pendingDeleteDomainId = null;
+        let pendingDeleteDomainName = '';
+        let pendingDeleteDomainLabel = '';
+
+        function escapeJs(str) {
+            if (!str) return '';
+            return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        }
+
+        function promptDeleteDomain(domainId, domainName, displayName) {
+            pendingDeleteDomainId = domainId;
+            pendingDeleteDomainName = domainName || 'Domain #' + domainId;
+            pendingDeleteDomainLabel = displayName || domainName || 'Monitored Domain';
+
+            document.getElementById('delete-domain-name').innerText = pendingDeleteDomainName;
+            document.getElementById('delete-domain-label').innerText = pendingDeleteDomainLabel;
+
+            const modal = document.getElementById('modal-confirm-delete-domain');
+            modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function promptDeleteCurrentViewingDomain() {
+            if (!currentViewingDomainId) return;
+            promptDeleteDomain(currentViewingDomainId, currentViewingDomainName, currentViewingDomainLabel);
+        }
+
+        function closeDeleteDomainModal() {
+            document.getElementById('modal-confirm-delete-domain').classList.add('hidden');
+            pendingDeleteDomainId = null;
+        }
+
+        async function confirmExecuteDeleteDomain() {
+            if (!pendingDeleteDomainId) return;
+            const btn = document.getElementById('btn-confirm-delete-domain');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Removing...`;
+            lucide.createIcons();
+
+            try {
+                const res = await fetch(`/api/domains/${pendingDeleteDomainId}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+
+                if (res.ok || res.status === 204) {
+                    closeDeleteDomainModal();
+                    closeDomainDetailsModal();
+                    await loadDomains();
+                    await loadDashboardStats();
+                } else if (res.status === 403) {
+                    alert("⚠️ Permission Denied: Only Administrators and Security Analysts have clearance to remove monitored domains.");
+                } else {
+                    alert(`⚠️ Failed to remove domain (HTTP ${res.status}): ${res.statusText}`);
+                }
+            } catch (e) {
+                alert("Error removing domain: " + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                lucide.createIcons();
+            }
+        }
 
         // Domain Deep-Dive Drawer
         async function openDomainDetails(domainId) {
@@ -1600,6 +1730,9 @@
                 const res = await fetch(`/api/domains/${domainId}/report`, { headers: getAuthHeaders() });
                 if (res.ok) {
                     const data = await res.json();
+                    currentViewingDomainName = data.domain.domainName;
+                    currentViewingDomainLabel = data.domain.displayName || data.domain.domainName;
+
                     document.getElementById('detail-domain-name').innerText = data.domain.domainName;
                     document.getElementById('detail-domain-ip').innerText = `Primary IPv4: ${data.domain.primaryIp || 'N/A'} | Country: ${data.geo.country} ${data.geo.flag}`;
 
