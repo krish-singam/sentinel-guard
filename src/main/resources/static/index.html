@@ -1,0 +1,1840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SentinelGuard — Intelligent WAF & Threat Intelligence</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    screens: {
+                        'xs': '375px',
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            900: '#0c4a6e',
+                        },
+                        cyber: {
+                            dark: '#080c14',
+                            card: '#111827',
+                            border: '#1f2937',
+                            red: '#ef4444',
+                            green: '#10b981',
+                            amber: '#f59e0b',
+                            purple: '#8b5cf6'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #080c14;
+            color: #f3f4f6;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Hide scrollbars for clean horizontal tab lists on mobile */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* Custom scrollbar for tables & modals */
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0b0f19;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #273549;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-cyan-500 selection:text-white">
+
+    <!-- Top RBAC Role Simulator Bar (Fully Responsive) -->
+    <div class="bg-gray-950/90 border-b border-gray-800/80 px-3 sm:px-6 py-2 text-xs">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+            <!-- Role Switcher Pills -->
+            <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+                <span class="text-gray-400 font-bold uppercase tracking-wider text-[10px] sm:text-xs shrink-0 flex items-center gap-1">
+                    <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-cyan-400"></i> Role:
+                </span>
+                <div class="inline-flex rounded-lg bg-gray-900/90 p-0.5 border border-gray-800 shrink-0" id="role-buttons">
+                    <button onclick="switchRole('krishna', 'krishna')" id="btn-krishna" class="px-2.5 sm:px-3 py-1 rounded-md font-semibold text-[11px] sm:text-xs transition-all bg-cyan-600 text-white shadow-sm flex items-center gap-1">
+                        <span>👑 Super Admin</span>
+                    </button>
+                    <button onclick="switchRole('alex', 'alex')" id="btn-alex" class="px-2.5 sm:px-3 py-1 rounded-md font-medium text-[11px] sm:text-xs text-gray-400 hover:text-gray-200 transition-all flex items-center gap-1">
+                        <span>🛡️ Analyst</span>
+                    </button>
+                    <button onclick="switchRole('sarah', 'sarah')" id="btn-sarah" class="px-2.5 sm:px-3 py-1 rounded-md font-medium text-[11px] sm:text-xs text-gray-400 hover:text-gray-200 transition-all flex items-center gap-1">
+                        <span>📋 Auditor</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Status Indicator & PDF Export -->
+            <div class="flex items-center justify-between md:justify-end gap-3 shrink-0 pt-1 md:pt-0 border-t border-gray-900 md:border-0">
+                <div class="flex items-center gap-2 text-[11px] font-mono" id="live-pulse-container" title="Auto-refreshing every 5 seconds">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                    <span class="text-emerald-400">LIVE SYNC (<span id="pulse-timer">5</span>s)</span>
+                </div>
+                <a href="/api/reports/pdf" class="px-2.5 py-1 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800/60 rounded-md flex items-center gap-1 text-[11px] font-medium transition active:scale-95">
+                    <i data-lucide="file-down" class="w-3 h-3"></i> Export PDF
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Navigation Bar -->
+    <header class="bg-gray-950/95 backdrop-blur-md border-b border-gray-800/80 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-3">
+            <!-- Brand Logo -->
+            <div class="flex items-center gap-2.5 sm:gap-3">
+                <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/20 shrink-0">
+                    <i data-lucide="shield-check" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-1.5 sm:gap-2">
+                        <span class="font-bold text-base sm:text-lg tracking-tight text-white">Sentinel<span class="text-cyan-400">Guard</span></span>
+                        <span class="text-[9px] sm:text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/80">v1.0</span>
+                    </div>
+                    <p class="text-[10px] sm:text-[11px] text-gray-400 hidden xs:block truncate">WAF & Threat Intelligence</p>
+                </div>
+            </div>
+
+            <!-- Desktop Navigation Tabs (Hidden on mobile/tablet) -->
+            <nav class="hidden lg:flex space-x-1" id="nav-tabs-desktop">
+                <button onclick="showTab('radar')" id="tab-btn-radar" class="px-3 py-2 text-xs font-semibold rounded-lg text-cyan-400 bg-gray-900 border border-gray-800 flex items-center gap-1.5 transition">
+                    <i data-lucide="radar" class="w-4 h-4"></i> Threat Radar
+                </button>
+                <button onclick="showTab('simulation')" id="tab-btn-simulation" class="px-3 py-2 text-xs font-semibold rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-900/50 flex items-center gap-1.5 transition relative">
+                    <i data-lucide="flame" class="w-4 h-4 text-red-400"></i> Attack Sandbox
+                    <span id="sandbox-badge" class="px-1 py-0.2 text-[8px] bg-red-950 text-red-400 border border-red-800 rounded font-mono">ADMIN</span>
+                </button>
+                <button onclick="showTab('domains')" id="tab-btn-domains" class="px-3 py-2 text-xs font-semibold rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-900/50 flex items-center gap-1.5 transition">
+                    <i data-lucide="globe" class="w-4 h-4"></i> Domains & DNS
+                </button>
+                <button onclick="showTab('firewall')" id="tab-btn-firewall" class="px-3 py-2 text-xs font-semibold rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-900/50 flex items-center gap-1.5 transition">
+                    <i data-lucide="brick-wall" class="w-4 h-4"></i> Firewall Jails
+                </button>
+                <button onclick="showTab('audit')" id="tab-btn-audit" class="px-3 py-2 text-xs font-semibold rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-900/50 flex items-center gap-1.5 transition">
+                    <i data-lucide="history" class="w-4 h-4"></i> Audit & Alerts
+                </button>
+            </nav>
+
+            <!-- User Profile Chip, Auth Controls & Mobile Hamburger Button -->
+            <div class="flex items-center gap-2 sm:gap-3">
+                <button onclick="openLoginModal()" class="flex items-center gap-2 text-right hover:opacity-80 transition group text-left sm:text-right" title="Click to Switch User / Login">
+                    <div class="hidden sm:block">
+                        <p class="text-xs font-bold text-gray-200 group-hover:text-cyan-400 transition" id="user-display-name">Krishna Singamsetti</p>
+                        <p class="text-[10px] text-cyan-400 font-mono" id="user-role-badge">ROLE_SUPER_ADMIN</p>
+                    </div>
+                    <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-cyan-900/60 border border-cyan-700/60 flex items-center justify-center text-cyan-300 font-bold text-xs sm:text-sm shrink-0 shadow-inner group-hover:border-cyan-400 transition" id="user-avatar-initials">
+                        KS
+                    </div>
+                </button>
+
+                <!-- Explicit Login / Switch Portal Button -->
+                <button onclick="openLoginModal()" title="Authentication & Clearance Portal" class="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-300 text-xs transition active:scale-95 flex items-center gap-1.5">
+                    <i data-lucide="key-round" class="w-3.5 h-3.5 text-cyan-400"></i>
+                    <span class="hidden xl:inline text-[11px] font-medium">Auth</span>
+                </button>
+
+                <!-- Dedicated Logout Button -->
+                <button onclick="performLogout()" title="Logout from SOC Platform" class="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-red-950/70 hover:bg-red-900 border border-red-800/70 text-red-300 text-xs transition active:scale-95 flex items-center gap-1.5">
+                    <i data-lucide="log-out" class="w-3.5 h-3.5 text-red-400"></i>
+                    <span class="hidden md:inline text-[11px] font-semibold">Logout</span>
+                </button>
+
+                <!-- Mobile Menu Button (lg:hidden) -->
+                <button onclick="toggleMobileMenu()" class="p-2 rounded-lg bg-gray-900 border border-gray-800 text-gray-400 hover:text-white lg:hidden focus:outline-none" aria-label="Toggle Navigation">
+                    <i data-lucide="menu" id="mobile-menu-icon" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Mobile Dropdown Menu (lg:hidden) -->
+        <div id="mobile-menu-dropdown" class="hidden lg:hidden bg-gray-950 border-b border-gray-800 px-3 py-3 space-y-1 text-xs">
+            <button onclick="showTab('radar'); toggleMobileMenu();" class="w-full text-left px-3 py-2 rounded-lg text-cyan-400 font-medium bg-gray-900 flex items-center gap-2">
+                <i data-lucide="radar" class="w-4 h-4"></i> Threat Radar & Live Feed
+            </button>
+            <button onclick="showTab('simulation'); toggleMobileMenu();" class="w-full text-left px-3 py-2 rounded-lg text-gray-300 font-medium hover:bg-gray-900 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="flame" class="w-4 h-4 text-red-400"></i> Red-Team Attack Sandbox
+                </div>
+                <span class="text-[9px] bg-red-950 text-red-400 border border-red-800 px-1.5 py-0.5 rounded font-mono">SUPER ADMIN</span>
+            </button>
+            <button onclick="showTab('domains'); toggleMobileMenu();" class="w-full text-left px-3 py-2 rounded-lg text-gray-300 font-medium hover:bg-gray-900 flex items-center gap-2">
+                <i data-lucide="globe" class="w-4 h-4"></i> Domains & DNS Threat Intel
+            </button>
+            <button onclick="showTab('firewall'); toggleMobileMenu();" class="w-full text-left px-3 py-2 rounded-lg text-gray-300 font-medium hover:bg-gray-900 flex items-center gap-2">
+                <i data-lucide="brick-wall" class="w-4 h-4"></i> Firewall Jails & Rate Limiter
+            </button>
+            <button onclick="showTab('audit'); toggleMobileMenu();" class="w-full text-left px-3 py-2 rounded-lg text-gray-300 font-medium hover:bg-gray-900 flex items-center gap-2">
+                <i data-lucide="history" class="w-4 h-4"></i> Audit Trail & Alerts
+            </button>
+            <div class="border-t border-gray-800 pt-2 mt-2 flex gap-2">
+                <button onclick="openLoginModal(); toggleMobileMenu();" class="flex-1 text-center py-2 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-cyan-400 font-medium flex items-center justify-center gap-1.5">
+                    <i data-lucide="key-round" class="w-3.5 h-3.5"></i> Switch User / Login
+                </button>
+                <button onclick="performLogout(); toggleMobileMenu();" class="flex-1 text-center py-2 rounded-lg bg-red-950/80 hover:bg-red-900 border border-red-800 text-red-300 font-medium flex items-center justify-center gap-1.5">
+                    <i data-lucide="log-out" class="w-3.5 h-3.5"></i> Logout
+                </button>
+            </div>
+        </div>
+
+        <!-- Horizontal Scrollable Quick-Tabs for Mobile/Tablet -->
+        <div class="lg:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar px-3 py-1.5 bg-gray-900/40 border-t border-gray-900">
+            <button onclick="showTab('radar')" id="mobile-tab-btn-radar" class="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-gray-800 text-cyan-400 border border-gray-700 whitespace-nowrap flex items-center gap-1">
+                <i data-lucide="radar" class="w-3 h-3"></i> Radar
+            </button>
+            <button onclick="showTab('simulation')" id="mobile-tab-btn-simulation" class="px-2.5 py-1 rounded-md text-[11px] font-medium text-gray-400 hover:text-white whitespace-nowrap flex items-center gap-1">
+                <i data-lucide="flame" class="w-3 h-3 text-red-400"></i> Sandbox
+            </button>
+            <button onclick="showTab('domains')" id="mobile-tab-btn-domains" class="px-2.5 py-1 rounded-md text-[11px] font-medium text-gray-400 hover:text-white whitespace-nowrap flex items-center gap-1">
+                <i data-lucide="globe" class="w-3 h-3"></i> Domains
+            </button>
+            <button onclick="showTab('firewall')" id="mobile-tab-btn-firewall" class="px-2.5 py-1 rounded-md text-[11px] font-medium text-gray-400 hover:text-white whitespace-nowrap flex items-center gap-1">
+                <i data-lucide="brick-wall" class="w-3 h-3"></i> Jails
+            </button>
+            <button onclick="showTab('audit')" id="mobile-tab-btn-audit" class="px-2.5 py-1 rounded-md text-[11px] font-medium text-gray-400 hover:text-white whitespace-nowrap flex items-center gap-1">
+                <i data-lucide="history" class="w-3 h-3"></i> Audit
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
+
+        <!-- Top Metrics Overview (2x2 on mobile, 4-col on desktop) -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+            <!-- Metric 1: Domains -->
+            <div class="bg-gray-900/80 border border-gray-800/80 rounded-xl p-3 sm:p-4 flex flex-col justify-between hover:border-gray-700 transition">
+                <div class="flex items-center justify-between">
+                    <p class="text-[11px] sm:text-xs font-medium text-gray-400">Domains</p>
+                    <div class="w-7 h-7 sm:w-9 sm:h-9 rounded-lg bg-blue-950/60 border border-blue-800/40 text-blue-400 flex items-center justify-center">
+                        <i data-lucide="globe-2" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <p class="text-lg sm:text-2xl font-bold text-white tracking-tight" id="stat-domains">--</p>
+                    <p class="text-[10px] text-emerald-400 mt-0.5 flex items-center gap-1 font-mono">
+                        <i data-lucide="check-circle" class="w-2.5 h-2.5"></i> 100% HEALTH
+                    </p>
+                </div>
+            </div>
+
+            <!-- Metric 2: Processed Requests -->
+            <div class="bg-gray-900/80 border border-gray-800/80 rounded-xl p-3 sm:p-4 flex flex-col justify-between hover:border-gray-700 transition">
+                <div class="flex items-center justify-between">
+                    <p class="text-[11px] sm:text-xs font-medium text-gray-400">Total Traffic</p>
+                    <div class="w-7 h-7 sm:w-9 sm:h-9 rounded-lg bg-cyan-950/60 border border-cyan-800/40 text-cyan-400 flex items-center justify-center">
+                        <i data-lucide="activity" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <p class="text-lg sm:text-2xl font-bold text-white tracking-tight truncate" id="stat-requests">--</p>
+                    <p class="text-[10px] text-cyan-400 mt-0.5 flex items-center gap-1 font-mono">
+                        <i data-lucide="zap" class="w-2.5 h-2.5"></i> VIRTUAL LOOM
+                    </p>
+                </div>
+            </div>
+
+            <!-- Metric 3: Blocked Attacks -->
+            <div class="bg-gray-900/80 border border-gray-800/80 rounded-xl p-3 sm:p-4 flex flex-col justify-between hover:border-gray-700 transition">
+                <div class="flex items-center justify-between">
+                    <p class="text-[11px] sm:text-xs font-medium text-gray-400">Neutralized</p>
+                    <div class="w-7 h-7 sm:w-9 sm:h-9 rounded-lg bg-red-950/60 border border-red-800/40 text-red-400 flex items-center justify-center">
+                        <i data-lucide="shield-x" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <p class="text-lg sm:text-2xl font-bold text-red-400 tracking-tight" id="stat-blocked">--</p>
+                    <p class="text-[10px] text-red-300 mt-0.5 flex items-center gap-1 font-mono">
+                        <i data-lucide="shield-alert" class="w-2.5 h-2.5"></i> 100% BLOCKED
+                    </p>
+                </div>
+            </div>
+
+            <!-- Metric 4: Jailed IPs -->
+            <div class="bg-gray-900/80 border border-gray-800/80 rounded-xl p-3 sm:p-4 flex flex-col justify-between hover:border-gray-700 transition">
+                <div class="flex items-center justify-between">
+                    <p class="text-[11px] sm:text-xs font-medium text-gray-400">Jailed IPs</p>
+                    <div class="w-7 h-7 sm:w-9 sm:h-9 rounded-lg bg-amber-950/60 border border-amber-800/40 text-amber-400 flex items-center justify-center">
+                        <i data-lucide="lock" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <p class="text-lg sm:text-2xl font-bold text-amber-400 tracking-tight" id="stat-bans">--</p>
+                    <p class="text-[10px] text-amber-300 mt-0.5 flex items-center gap-1 font-mono">
+                        <i data-lucide="ban" class="w-2.5 h-2.5"></i> ACTIVE JAILS
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= TAB 1: THREAT RADAR & LIVE FEED ================= -->
+        <section id="tab-radar" class="space-y-4 sm:space-y-6">
+            <!-- Charts Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+                <!-- Threat Types Breakdown -->
+                <div class="bg-gray-900/80 border border-gray-800 rounded-xl p-4 sm:p-5 flex flex-col">
+                    <h3 class="text-xs sm:text-sm font-bold text-white flex items-center gap-2 mb-3">
+                        <i data-lucide="pie-chart" class="w-4 h-4 text-cyan-400"></i> Attack Vector Distribution
+                    </h3>
+                    <div class="h-56 sm:h-64 relative flex-1 flex items-center justify-center">
+                        <canvas id="chart-threats"></canvas>
+                    </div>
+                </div>
+
+                <!-- Attacks by Origin Country -->
+                <div class="bg-gray-900/80 border border-gray-800 rounded-xl p-4 sm:p-5 lg:col-span-2 flex flex-col">
+                    <h3 class="text-xs sm:text-sm font-bold text-white flex items-center gap-2 mb-3">
+                        <i data-lucide="map-pin" class="w-4 h-4 text-red-400"></i> Top Threat Geo-Origins
+                    </h3>
+                    <div class="h-56 sm:h-64 relative flex-1">
+                        <canvas id="chart-countries"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Security Incident Feed Table & Dynamic Multi-Filter Toolbar -->
+            <div class="bg-gray-900/80 border border-gray-800 rounded-xl overflow-hidden shadow-xl">
+                <!-- Header with Status & Refresh -->
+                <div class="p-3 sm:p-4 border-b border-gray-800 flex flex-wrap items-center justify-between gap-2 bg-gray-950/40">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+                        <h3 class="text-xs sm:text-sm font-bold text-white tracking-wide">LIVE SECURITY INCIDENT FEED</h3>
+                        <span id="filtered-incident-count" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800/80">
+                            Loading incidents...
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="fetchLiveIncidents()" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-xs text-gray-200 rounded-lg flex items-center gap-1 transition active:scale-95">
+                            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Incident Filter Controls Bar -->
+                <div class="p-3 bg-gray-950/80 border-b border-gray-800/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5 text-xs">
+                    <!-- Search Input -->
+                    <div class="relative lg:col-span-2">
+                        <i data-lucide="search" class="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2"></i>
+                        <input type="text" id="filter-search" oninput="applyIncidentFilters()" placeholder="Filter by IP, Country, Rule, Payload snippet..." class="w-full pl-8 pr-3 py-1.5 bg-gray-900 border border-gray-700/80 rounded-lg text-gray-200 text-xs font-mono placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition">
+                    </div>
+
+                    <!-- Threat Type Filter -->
+                    <div>
+                        <select id="filter-threat-type" onchange="applyIncidentFilters()" class="w-full bg-gray-900 border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition">
+                            <option value="">All Attack Vectors</option>
+                            <option value="SQL_INJECTION">SQL Injection (SQLi)</option>
+                            <option value="XSS">Cross-Site Scripting (XSS)</option>
+                            <option value="REMOTE_CODE_EXECUTION">Remote Code Execution (RCE)</option>
+                            <option value="PATH_TRAVERSAL">Path Traversal (LFI)</option>
+                            <option value="DOS_HTTP_FLOOD">DoS / DDoS HTTP Flood</option>
+                            <option value="SUSPICIOUS_SCANNER">Malicious Scanner Probe</option>
+                            <option value="SSRF">Server-Side Request Forgery (SSRF)</option>
+                            <option value="XXE">XML External Entity (XXE)</option>
+                            <option value="SSTI">Server-Side Template Inj (SSTI)</option>
+                            <option value="NOSQL_INJECTION">NoSQL / LDAP Injection</option>
+                            <option value="DESERIALIZATION_ATTACK">Insecure Deserialization</option>
+                        </select>
+                    </div>
+
+                    <!-- Severity Filter -->
+                    <div>
+                        <select id="filter-severity" onchange="applyIncidentFilters()" class="w-full bg-gray-900 border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition">
+                            <option value="">All Severities</option>
+                            <option value="CRITICAL">Critical Severity</option>
+                            <option value="HIGH">High Severity</option>
+                            <option value="MEDIUM">Medium Severity</option>
+                            <option value="LOW">Low Severity</option>
+                        </select>
+                    </div>
+
+                    <!-- 6-Month Time Window Retention Filter -->
+                    <div>
+                        <select id="filter-time-range" onchange="fetchLiveIncidents()" class="w-full bg-gray-900 border border-gray-700/80 rounded-lg px-2.5 py-1.5 text-cyan-300 text-xs font-mono focus:outline-none focus:border-cyan-500 transition font-bold">
+                            <option value="all">📅 All History (6 Months)</option>
+                            <option value="24h">⚡ Last 24 Hours</option>
+                            <option value="7d">🗓️ Last 7 Days</option>
+                            <option value="30d">🗓️ Last 30 Days</option>
+                            <option value="90d">🗓️ Last 90 Days</option>
+                            <option value="180d">🗓️ 180 Days (6 Months)</option>
+                        </select>
+                    </div>
+
+                    <!-- Target Domain Filter & Reset -->
+                    <div class="flex gap-1.5">
+                        <select id="filter-domain" onchange="applyIncidentFilters()" class="flex-1 bg-gray-900 border border-gray-700/80 rounded-lg px-2 py-1.5 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition truncate">
+                            <option value="">All Monitored Domains</option>
+                        </select>
+                        <button onclick="resetIncidentFilters()" title="Reset All Filters" class="px-2.5 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-400 hover:text-white rounded-lg transition active:scale-95 shrink-0 flex items-center gap-1">
+                            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs text-gray-300 min-w-[750px]">
+                        <thead class="bg-gray-950/70 text-gray-400 uppercase font-mono text-[10px] sm:text-[11px] border-b border-gray-800">
+                            <tr>
+                                <th class="p-3">Time</th>
+                                <th class="p-3">Domain</th>
+                                <th class="p-3">Attacker IP & Geo</th>
+                                <th class="p-3">Threat Vector</th>
+                                <th class="p-3">Score & Severity</th>
+                                <th class="p-3">Action</th>
+                                <th class="p-3">Rule / Snippet</th>
+                            </tr>
+                        </thead>
+                        <tbody id="incidents-table-body" class="divide-y divide-gray-800/60 font-mono text-[11px] sm:text-xs">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= TAB 2: RED-TEAM ATTACK SANDBOX (SUPER ADMIN) ================= -->
+        <section id="tab-simulation" class="space-y-4 sm:space-y-6 hidden">
+            <!-- Non-Admin Warning Banner -->
+            <div id="sandbox-locked-banner" class="hidden bg-amber-950/40 border border-amber-800/60 rounded-xl p-4 sm:p-5 text-amber-200 flex items-start gap-3 sm:gap-4">
+                <div class="p-2 bg-amber-900/50 rounded-lg text-amber-400 shrink-0">
+                    <i data-lucide="shield-alert" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+                </div>
+                <div>
+                    <h4 class="font-bold text-sm sm:text-base">Restricted Clearance Level</h4>
+                    <p class="text-xs text-amber-300/80 mt-1">
+                        Active role <span class="font-mono font-bold text-amber-200" id="locked-role-name">ROLE_ANALYST</span> does not have red-team attack simulation execution clearance.
+                        Switch to <strong class="text-white">👑 Super Administrator (Krishna)</strong> using the top simulator bar.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Unlocked Attack Sandbox Console -->
+            <div id="sandbox-unlocked-container" class="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+                <!-- Left: Attack Injector Form -->
+                <div class="lg:col-span-6 bg-gray-900/90 border border-gray-800 rounded-xl p-4 sm:p-6 space-y-4">
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                        <h3 class="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                            <i data-lucide="flame" class="w-4 h-4 sm:w-5 sm:h-5 text-red-500"></i> Red-Team Payload Injector
+                        </h3>
+                        <span class="text-[9px] sm:text-[10px] font-mono bg-red-950 text-red-400 border border-red-800 px-2 py-0.5 rounded">SUPER_ADMIN</span>
+                    </div>
+
+                    <!-- Preset Selector -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Preset Attack Vectors</label>
+                        <select id="attack-preset-select" onchange="applyPresetPayload()" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-red-500">
+                            <!-- Populated via JS -->
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-300 mb-1">Threat Category</label>
+                            <select id="sim-threat-type" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-red-500">
+                                <option value="SQL_INJECTION">SQL Injection (SQLi)</option>
+                                <option value="XSS">Cross-Site Scripting (XSS)</option>
+                                <option value="REMOTE_CODE_EXECUTION">Remote Code Execution (RCE)</option>
+                                <option value="SSRF">Server-Side Request Forgery (SSRF)</option>
+                                <option value="XXE">XML External Entity (XXE)</option>
+                                <option value="SSTI">Template Injection (SSTI)</option>
+                                <option value="NOSQL_INJECTION">NoSQL Injection (MongoDB)</option>
+                                <option value="LDAP_INJECTION">LDAP Filter Injection</option>
+                                <option value="DESERIALIZATION_ATTACK">Insecure Deserialization</option>
+                                <option value="PROTOTYPE_POLLUTION">Prototype Pollution</option>
+                                <option value="CRLF_INJECTION">CRLF Header Splitting</option>
+                                <option value="PATH_TRAVERSAL">Path Traversal / LFI</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-300 mb-1">Target Domain</label>
+                            <select id="sim-target-domain" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-red-500">
+                                <option value="sentinel-guard.singamsettikrishna.in">sentinel-guard.singamsettikrishna.in</option>
+                                <option value="usertesting.singamsettikrishna.in">usertesting.singamsettikrishna.in</option>
+                                <option value="singamsettikrishna.in">singamsettikrishna.in</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Custom Payload Editor -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Raw Attack Payload String</label>
+                        <textarea id="sim-payload" rows="3" class="w-full bg-gray-950 border border-gray-700 rounded-lg p-2.5 sm:p-3 text-xs text-red-400 font-mono focus:outline-none focus:border-red-500" placeholder="e.g. admin' OR '1'='1' --"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 mb-1">Simulated Attacker Source IP</label>
+                        <input type="text" id="sim-attacker-ip" value="198.51.100.42" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-300 font-mono focus:outline-none focus:border-red-500">
+                    </div>
+
+                    <!-- Action Buttons (Responsive Stack on Mobile) -->
+                    <div class="flex flex-col sm:flex-row gap-2.5 pt-1">
+                        <button onclick="fireAttackSimulation()" id="btn-fire-attack" class="flex-1 py-2.5 bg-red-600 hover:bg-red-500 active:scale-95 text-white font-bold text-xs rounded-lg shadow-lg shadow-red-600/30 flex items-center justify-center gap-1.5 transition">
+                            <i data-lucide="crosshair" class="w-4 h-4"></i> Fire Attack Payload
+                        </button>
+                        <button onclick="fireFloodSimulation()" id="btn-fire-flood" class="py-2.5 px-4 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold text-xs rounded-lg shadow-lg shadow-amber-600/30 flex items-center justify-center gap-1.5 transition">
+                            <i data-lucide="flame-kindling" class="w-4 h-4"></i> 50-Req DoS Flood
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right: WAF Live Interception Result -->
+                <div class="lg:col-span-6 bg-gray-900/90 border border-gray-800 rounded-xl p-4 sm:p-6 space-y-4 flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center justify-between border-b border-gray-800 pb-3 mb-3">
+                            <h3 class="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                                <i data-lucide="shield" class="w-4 h-4 sm:w-5 sm:h-5 text-cyan-400"></i> WAF Interception Output
+                            </h3>
+                            <span id="res-status-badge" class="px-2 py-0.5 rounded text-[10px] sm:text-xs font-mono font-bold bg-gray-800 text-gray-400">AWAITING TRIGGER</span>
+                        </div>
+
+                        <div id="sim-result-placeholder" class="py-10 sm:py-14 text-center text-gray-500 space-y-2">
+                            <i data-lucide="scan" class="w-8 h-8 sm:w-10 sm:h-10 mx-auto text-gray-600"></i>
+                            <p class="text-xs max-w-sm mx-auto">Select or type an attack payload on the left and click <strong>"Fire Attack Payload"</strong> to watch the WAF neutralize it in real time.</p>
+                        </div>
+
+                        <!-- Result Card -->
+                        <div id="sim-result-card" class="hidden space-y-3 font-mono text-xs">
+                            <div class="p-3 sm:p-4 rounded-xl bg-gray-950 border border-gray-800 space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">Decision:</span>
+                                    <span id="res-action" class="font-bold px-2 py-0.5 rounded bg-red-950 text-red-400 border border-red-800 text-[11px]">403 FORBIDDEN</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">Rule Triggered:</span>
+                                    <span id="res-rule" class="text-cyan-400 font-bold truncate max-w-[180px] sm:max-w-none">SQLI_ADMIN_BYPASS</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">Threat Score:</span>
+                                    <span id="res-score" class="text-amber-400 font-bold">95 / 100</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">Latency:</span>
+                                    <span id="res-time" class="text-emerald-400">0.82 ms (Virtual Threads)</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-400">Alerts:</span>
+                                    <span id="res-alert" class="text-purple-400 text-[11px]">📧 Email + 📱 SMS</span>
+                                </div>
+                            </div>
+
+                            <div class="p-3 rounded-lg bg-red-950/30 border border-red-900/50 text-red-200">
+                                <p class="font-semibold text-red-300 text-[11px] mb-1 flex items-center gap-1">
+                                    <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> Intercepted Snippet:
+                                </p>
+                                <p id="res-snippet" class="p-2 bg-gray-950 rounded text-red-400 break-all font-mono text-[10px] sm:text-[11px]"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-2.5 bg-gray-950/60 border border-gray-800 rounded-lg text-[11px] text-gray-400 flex items-center justify-between mt-2">
+                        <span>Immutable Audit Log</span>
+                        <a href="#tab-audit" onclick="showTab('audit')" class="text-cyan-400 hover:underline">View Audit &rarr;</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= TAB 3: DOMAINS & DNS THREAT INTELLIGENCE ================= -->
+        <section id="tab-domains" class="space-y-4 sm:space-y-6 hidden">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h3 class="text-base sm:text-lg font-bold text-white">Monitored DNS & Domains</h3>
+                    <p class="text-xs text-gray-400">DNS Records, WHOIS, SSL Health & GeoIP Tracker</p>
+                </div>
+                <button onclick="openAddDomainModal()" class="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 active:scale-95 text-white font-medium text-xs rounded-lg shadow-lg shadow-cyan-600/30 flex items-center gap-1.5 transition">
+                    <i data-lucide="plus" class="w-4 h-4"></i> Add Domain
+                </button>
+            </div>
+
+            <!-- Domain Cards Grid (1 col on mobile, 2 on tablet, 3 on desktop) -->
+            <div id="domain-cards-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
+                <!-- Populated via JS -->
+            </div>
+        </section>
+
+        <!-- ================= TAB 4: FIREWALL JAILS ================= -->
+        <section id="tab-firewall" class="space-y-4 sm:space-y-6 hidden">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h3 class="text-base sm:text-lg font-bold text-white">Firewall Jails & Blocklist</h3>
+                    <p class="text-xs text-gray-400">Sliding-window rate-limiting bans & administrator mitigations</p>
+                </div>
+                <button onclick="openManualBanModal()" class="px-3.5 py-2 bg-red-600 hover:bg-red-500 active:scale-95 text-white text-xs font-medium rounded-lg flex items-center gap-1.5 transition">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i> Manual Ban IP
+                </button>
+            </div>
+
+            <!-- Banned IPs Table -->
+            <div class="bg-gray-900/80 border border-gray-800 rounded-xl overflow-hidden shadow-xl">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs text-gray-300 min-w-[600px]">
+                        <thead class="bg-gray-950/70 text-gray-400 uppercase font-mono text-[10px] sm:text-[11px] border-b border-gray-800">
+                            <tr>
+                                <th class="p-3">IP Address</th>
+                                <th class="p-3">Country</th>
+                                <th class="p-3">Violation Reason</th>
+                                <th class="p-3">Violations</th>
+                                <th class="p-3">Jailed Until</th>
+                                <th class="p-3">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="firewall-table-body" class="divide-y divide-gray-800/60 font-mono text-[11px] sm:text-xs">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= TAB 5: AUDIT TRAIL, DATABASE & RETENTION ================= -->
+        <section id="tab-audit" class="space-y-4 sm:space-y-6 hidden">
+            <!-- Database Storage & 6-Month Data Retention Status Card -->
+            <div class="bg-gradient-to-r from-gray-900 via-gray-900/90 to-cyan-950/40 border border-cyan-800/40 rounded-xl p-4 sm:p-5 shadow-xl">
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-800/80 pb-3">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-8 h-8 rounded-lg bg-cyan-950 border border-cyan-700/60 text-cyan-400 flex items-center justify-center">
+                            <i data-lucide="database" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xs sm:text-sm font-bold text-white tracking-wide flex items-center gap-2">
+                                Database Persistence & 6-Month Historical Retention Lifecycle
+                                <span class="px-2 py-0.5 text-[9px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-800 rounded">CONFIGURABLE PERSISTENCE</span>
+                            </h3>
+                            <p class="text-[11px] text-gray-400 font-mono">Automated data lifecycle management enforcing a configurable 180-day retention window across PostgreSQL, MySQL & Disk H2</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="triggerRetentionPurge()" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 active:scale-95 text-xs text-gray-200 border border-gray-700 rounded-lg flex items-center gap-1.5 transition">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5 text-amber-400"></i> Run Retention Cycle
+                        </button>
+                        <button onclick="downloadPdfReport()" class="px-3 py-1.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-red-600/30 flex items-center gap-1.5 transition active:scale-95">
+                            <i data-lucide="file-down" class="w-3.5 h-3.5"></i> Export 6M PDF Report
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 text-xs font-mono">
+                    <div class="p-2.5 bg-gray-950/70 border border-gray-800/80 rounded-lg">
+                        <p class="text-[10px] text-gray-400 uppercase">Database Engine</p>
+                        <p id="retention-db-engine" class="font-bold text-cyan-300 truncate mt-0.5">Detecting...</p>
+                    </div>
+                    <div class="p-2.5 bg-gray-950/70 border border-gray-800/80 rounded-lg">
+                        <p class="text-[10px] text-gray-400 uppercase">Retention Window</p>
+                        <p id="retention-window-desc" class="font-bold text-emerald-300 mt-0.5">180 Days (6 Months)</p>
+                    </div>
+                    <div class="p-2.5 bg-gray-950/70 border border-gray-800/80 rounded-lg">
+                        <p class="text-[10px] text-gray-400 uppercase">Retained Records</p>
+                        <p id="retention-total-records" class="font-bold text-white mt-0.5">--</p>
+                    </div>
+                    <div class="p-2.5 bg-gray-950/70 border border-gray-800/80 rounded-lg">
+                        <p class="text-[10px] text-gray-400 uppercase">Oldest Record</p>
+                        <p id="retention-oldest-record" class="font-bold text-purple-300 truncate mt-0.5">--</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                <!-- Super Admin Simulation Audit Trail -->
+                <div class="bg-gray-900/80 border border-gray-800 rounded-xl p-4 sm:p-5 space-y-3">
+                    <h3 class="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                        <i data-lucide="history" class="w-4 h-4 text-cyan-400"></i> Red-Team Simulation Audit Ledger
+                    </h3>
+                    <div class="overflow-y-auto max-h-80 sm:max-h-96 space-y-2 pr-1" id="audit-trail-list">
+                        <!-- Populated via JS -->
+                    </div>
+                </div>
+
+                <!-- Dispatched Alerts Feed -->
+                <div class="bg-gray-900/80 border border-gray-800 rounded-xl p-4 sm:p-5 space-y-3">
+                    <h3 class="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                        <i data-lucide="bell-ring" class="w-4 h-4 text-purple-400"></i> Dispatched Alert Notifications
+                    </h3>
+                    <div class="overflow-y-auto max-h-80 sm:max-h-96 space-y-2 pr-1" id="alerts-trail-list">
+                        <!-- Populated via JS -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Modal: Add Domain -->
+    <div id="modal-add-domain" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 hidden">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-md w-full p-5 sm:p-6 space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <h3 class="font-bold text-white text-sm sm:text-base flex items-center gap-2">
+                    <i data-lucide="globe" class="w-4 h-4 sm:w-5 sm:h-5 text-cyan-400"></i> Add Monitored Domain
+                </h3>
+                <button onclick="closeAddDomainModal()" class="text-gray-400 hover:text-white p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-gray-300 mb-1">Domain Name / Hostname</label>
+                    <input type="text" id="modal-domain-input" placeholder="e.g. flipkart.com" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-gray-200 font-mono focus:outline-none focus:border-cyan-500">
+                </div>
+                <div>
+                    <label class="block font-semibold text-gray-300 mb-1">Display Label / Name</label>
+                    <input type="text" id="modal-domain-label" placeholder="e.g. Flipkart Core Gateway" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-gray-200 focus:outline-none focus:border-cyan-500">
+                </div>
+            </div>
+            <div class="flex gap-2.5 pt-2">
+                <button onclick="closeAddDomainModal()" class="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold rounded-lg">Cancel</button>
+                <button onclick="submitAddDomain()" class="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-cyan-600/30">Add & Scan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Deep-Dive Domain Intelligence Drawer -->
+    <div id="modal-domain-details" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-2.5 sm:p-4 hidden">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-3xl w-full p-4 sm:p-6 space-y-4 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <div>
+                    <h3 class="font-bold text-white text-base sm:text-lg flex items-center gap-2" id="detail-domain-name">Domain Name</h3>
+                    <p class="text-xs text-cyan-400 font-mono" id="detail-domain-ip">IP: --</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="rescanCurrentDomain()" id="btn-rescan-domain" class="px-2.5 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-xs rounded-lg flex items-center gap-1 transition active:scale-95">
+                        <i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-Scan Intel
+                    </button>
+                    <button onclick="closeDomainDetailsModal()" class="text-gray-400 hover:text-white p-1">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- DNS Records Table -->
+            <div class="space-y-2">
+                <h4 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <i data-lucide="server" class="w-4 h-4 text-cyan-400"></i> Active DNS Records (dnsjava)
+                </h4>
+                <div class="bg-gray-950 border border-gray-800 rounded-lg overflow-x-auto">
+                    <table class="w-full text-left text-xs font-mono min-w-[400px]">
+                        <thead class="bg-gray-900 text-gray-400 border-b border-gray-800 text-[10px]">
+                            <tr>
+                                <th class="p-2">Type</th>
+                                <th class="p-2">Value / Target</th>
+                                <th class="p-2">TTL</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detail-dns-tbody" class="divide-y divide-gray-800/40 text-gray-300 text-[11px]">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- WHOIS & SSL Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+                <div class="p-3.5 bg-gray-950 border border-gray-800 rounded-lg space-y-1.5">
+                    <h5 class="font-bold text-gray-200 text-xs sm:text-sm flex items-center gap-1.5 text-blue-400">
+                        <i data-lucide="file-text" class="w-4 h-4"></i> WHOIS Intelligence
+                    </h5>
+                    <p class="text-gray-400">Registrar: <span id="detail-whois-registrar" class="text-gray-200 font-bold">--</span></p>
+                    <p class="text-gray-400">Created: <span id="detail-whois-created" class="text-gray-300">--</span></p>
+                    <p class="text-gray-400">Expires: <span id="detail-whois-expires" class="text-gray-300">--</span></p>
+                    <p class="text-gray-400">Status: <span id="detail-whois-status" class="text-emerald-400">--</span></p>
+                </div>
+
+                <div class="p-3.5 bg-gray-950 border border-gray-800 rounded-lg space-y-1.5">
+                    <h5 class="font-bold text-gray-200 text-xs sm:text-sm flex items-center gap-1.5 text-emerald-400">
+                        <i data-lucide="lock" class="w-4 h-4"></i> SSL/TLS Certificate
+                    </h5>
+                    <p class="text-gray-400">Status: <span id="detail-ssl-status" class="text-emerald-400 font-bold">--</span></p>
+                    <p class="text-gray-400">Issuer: <span id="detail-ssl-issuer" class="text-gray-300">--</span></p>
+                    <p class="text-gray-400">Days Remaining: <span id="detail-ssl-days" class="text-cyan-300 font-bold">--</span></p>
+                    <p class="text-gray-400 truncate">Cipher: <span id="detail-ssl-cipher" class="text-gray-300 text-[10px]">--</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============= AUTHENTICATION LOGIN PORTAL MODAL ============= -->
+    <div id="modal-login" class="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-3 sm:p-4 hidden">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-md w-full p-5 sm:p-7 space-y-5 shadow-2xl shadow-cyan-900/20 relative overflow-hidden">
+            <!-- Decorative gradient top bar -->
+            <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-cyan-500 via-blue-600 to-purple-600 rounded-t-2xl"></div>
+
+            <!-- Header -->
+            <div class="text-center space-y-2 pt-2">
+                <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white shadow-xl shadow-cyan-500/30">
+                    <i data-lucide="shield-check" class="w-8 h-8"></i>
+                </div>
+                <h2 class="text-xl font-bold text-white tracking-tight">SentinelGuard SOC</h2>
+                <p class="text-xs text-gray-400">Security Operations Center &mdash; Authentication Portal</p>
+            </div>
+
+            <!-- Quick Login Persona Cards -->
+            <div class="space-y-2">
+                <p class="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Quick Access &mdash; Select Clearance Level</p>
+                <div class="grid grid-cols-1 gap-2">
+                    <!-- Krishna Super Admin -->
+                    <button onclick="quickLogin('krishna', 'krishna')" class="w-full flex items-center gap-3 p-3 bg-gray-950 hover:bg-cyan-950/40 border border-gray-800 hover:border-cyan-700 rounded-xl transition-all group text-left active:scale-[0.98]">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shrink-0">KS</div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-bold text-white group-hover:text-cyan-300 transition truncate">Krishna Singamsetti</p>
+                            <p class="text-[10px] text-gray-400 font-mono">Lead Security Architect</p>
+                        </div>
+                        <span class="px-2 py-0.5 text-[9px] font-mono font-bold bg-cyan-950 text-cyan-400 border border-cyan-800 rounded shrink-0">SUPER ADMIN</span>
+                    </button>
+
+                    <!-- Alex Security Analyst -->
+                    <button onclick="quickLogin('alex', 'alex')" class="w-full flex items-center gap-3 p-3 bg-gray-950 hover:bg-blue-950/40 border border-gray-800 hover:border-blue-700 rounded-xl transition-all group text-left active:scale-[0.98]">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shrink-0">AM</div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-bold text-white group-hover:text-blue-300 transition truncate">Alex Mercer</p>
+                            <p class="text-[10px] text-gray-400 font-mono">Security Operations Analyst</p>
+                        </div>
+                        <span class="px-2 py-0.5 text-[9px] font-mono font-bold bg-blue-950 text-blue-400 border border-blue-800 rounded shrink-0">ANALYST</span>
+                    </button>
+
+                    <!-- Sarah Auditor -->
+                    <button onclick="quickLogin('sarah', 'sarah')" class="w-full flex items-center gap-3 p-3 bg-gray-950 hover:bg-purple-950/40 border border-gray-800 hover:border-purple-700 rounded-xl transition-all group text-left active:scale-[0.98]">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-600 to-pink-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shrink-0">SC</div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-bold text-white group-hover:text-purple-300 transition truncate">Sarah Connor</p>
+                            <p class="text-[10px] text-gray-400 font-mono">Compliance & Security Auditor</p>
+                        </div>
+                        <span class="px-2 py-0.5 text-[9px] font-mono font-bold bg-purple-950 text-purple-400 border border-purple-800 rounded shrink-0">AUDITOR</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Custom Credentials Form -->
+            <div class="space-y-3 border-t border-gray-800 pt-4">
+                <p class="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Manual Credential Entry</p>
+                <div id="login-error-banner" class="hidden p-2.5 bg-red-950/50 border border-red-800 rounded-lg text-red-400 text-xs font-mono text-center"></div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-300 mb-1 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3 text-gray-400"></i> Username</label>
+                    <input type="text" id="login-username" placeholder="Enter SOC username" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-300 mb-1 flex items-center gap-1"><i data-lucide="lock" class="w-3 h-3 text-gray-400"></i> Password</label>
+                    <input type="password" id="login-password" placeholder="Enter password" onkeydown="if(event.key==='Enter')performCustomLogin()" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-gray-200 text-xs font-mono focus:outline-none focus:border-cyan-500 transition">
+                </div>
+                <button onclick="performCustomLogin()" id="btn-manual-login" class="w-full py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-cyan-500/30 transition-all active:scale-[0.97] flex items-center justify-center gap-2">
+                    <i data-lucide="log-in" class="w-4 h-4"></i> Authenticate & Enter SOC
+                </button>
+            </div>
+
+            <!-- Footer -->
+            <p class="text-center text-[10px] text-gray-500 font-mono">SentinelGuard v1.0 &mdash; Basic Auth over HTTPS &mdash; Java 21 Virtual Threads</p>
+        </div>
+    </div>
+
+    <!-- Application JavaScript -->
+    <script>
+        // Authentication State from Session Storage with fallback
+        let currentUser = {
+            username: sessionStorage.getItem('sg_user') || 'krishna',
+            password: sessionStorage.getItem('sg_pass') || 'krishna',
+            role: 'ROLE_SUPER_ADMIN',
+            isSuperAdmin: true,
+            fullName: 'Krishna Singamsetti'
+        };
+
+        let activeTab = 'radar';
+        let threatChart = null;
+        let countryChart = null;
+        let cachedPresets = [];
+        let allIncidents = [];
+        let syncCountdown = 5;
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', async () => {
+            lucide.createIcons();
+            await fetchCurrentUser();
+            await loadDashboardStats();
+            await fetchLiveIncidents();
+            await loadPresets();
+            await loadDomains();
+            await loadBannedIps();
+            await loadAuditTrail();
+            await loadRetentionStats();
+
+            // 5-second continuous live data synchronization (no page reload)
+            setInterval(async () => {
+                syncCountdown--;
+                if (syncCountdown <= 0) {
+                    syncCountdown = 5;
+                    await Promise.all([
+                        loadDashboardStats(),
+                        fetchLiveIncidents(),
+                        loadDomains(),
+                        loadBannedIps(),
+                        loadAuditTrail(),
+                        loadRetentionStats()
+                    ]);
+                }
+                const pulseTimer = document.getElementById('pulse-timer');
+                if (pulseTimer) pulseTimer.innerText = syncCountdown;
+            }, 1000);
+        });
+
+        function toggleMobileMenu() {
+            const dropdown = document.getElementById('mobile-menu-dropdown');
+            dropdown.classList.toggle('hidden');
+        }
+
+        // Basic Auth Header Generator
+        function getAuthHeaders() {
+            const token = btoa(`${currentUser.username}:${currentUser.password}`);
+            return {
+                'Authorization': `Basic ${token}`,
+                'Content-Type': 'application/json'
+            };
+        }
+
+        // Authentication Modal Controls
+        function openLoginModal() {
+            const modal = document.getElementById('modal-login');
+            modal.classList.remove('hidden');
+            document.getElementById('login-error-banner').classList.add('hidden');
+            document.getElementById('login-username').value = currentUser.username;
+            document.getElementById('login-password').value = '';
+            setTimeout(() => {
+                const passInput = document.getElementById('login-password');
+                if (passInput) passInput.focus();
+            }, 100);
+            lucide.createIcons();
+        }
+
+        function closeLoginModal() {
+            document.getElementById('modal-login').classList.add('hidden');
+            document.getElementById('login-error-banner').classList.add('hidden');
+        }
+
+        // 1-Click Persona Login
+        async function quickLogin(user, pass) {
+            currentUser.username = user;
+            currentUser.password = pass;
+            sessionStorage.setItem('sg_user', user);
+            sessionStorage.setItem('sg_pass', pass);
+
+            const success = await fetchCurrentUser();
+            if (success) {
+                closeLoginModal();
+                updateRoleButtonStyles(user);
+                await Promise.all([
+                    loadDashboardStats(),
+                    fetchLiveIncidents(),
+                    loadDomains(),
+                    loadBannedIps(),
+                    loadAuditTrail()
+                ]);
+            }
+        }
+
+        // Custom Login from Modal Form
+        async function performCustomLogin() {
+            const u = document.getElementById('login-username').value.trim();
+            const p = document.getElementById('login-password').value;
+            const errBanner = document.getElementById('login-error-banner');
+            const btn = document.getElementById('btn-manual-login');
+
+            if (!u || !p) {
+                errBanner.innerText = "Please enter both username and password.";
+                errBanner.classList.remove('hidden');
+                return;
+            }
+
+            btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Authenticating...`;
+            lucide.createIcons();
+
+            try {
+                const token = btoa(`${u}:${p}`);
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Basic ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    currentUser.username = data.username;
+                    currentUser.password = p;
+                    currentUser.role = data.role;
+                    currentUser.isSuperAdmin = data.isSuperAdmin;
+                    currentUser.fullName = data.fullName;
+
+                    sessionStorage.setItem('sg_user', data.username);
+                    sessionStorage.setItem('sg_pass', p);
+
+                    updateUserUI(data);
+                    closeLoginModal();
+                    updateRoleButtonStyles(data.username);
+
+                    await Promise.all([
+                        loadDashboardStats(),
+                        fetchLiveIncidents(),
+                        loadDomains(),
+                        loadBannedIps(),
+                        loadAuditTrail()
+                    ]);
+                } else {
+                    errBanner.innerText = "Invalid Credentials: HTTP 401 Unauthorized. Access Denied.";
+                    errBanner.classList.remove('hidden');
+                }
+            } catch (e) {
+                errBanner.innerText = "Connection error: " + e.message;
+                errBanner.classList.remove('hidden');
+            } finally {
+                btn.innerHTML = `<i data-lucide="log-in" class="w-4 h-4"></i> Authenticate & Enter SOC`;
+                lucide.createIcons();
+            }
+        }
+
+        // Logout Action
+        async function performLogout() {
+            if (!confirm("Are you sure you want to log out of the SentinelGuard SOC Platform?")) return;
+
+            try {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+            } catch (e) {
+                console.warn("Logout request completed locally", e);
+            }
+
+            sessionStorage.removeItem('sg_user');
+            sessionStorage.removeItem('sg_pass');
+
+            // Reset to guest / auditor view or open login modal
+            currentUser = {
+                username: 'sarah',
+                password: 'sarah',
+                role: 'ROLE_AUDITOR',
+                isSuperAdmin: false,
+                fullName: 'Sarah Connor'
+            };
+            sessionStorage.setItem('sg_user', 'sarah');
+            sessionStorage.setItem('sg_pass', 'sarah');
+
+            await fetchCurrentUser();
+            updateRoleButtonStyles('sarah');
+            openLoginModal();
+        }
+
+        // Switch Active Role via Top Nav Bar
+        async function switchRole(user, pass) {
+            currentUser.username = user;
+            currentUser.password = pass;
+            sessionStorage.setItem('sg_user', user);
+            sessionStorage.setItem('sg_pass', pass);
+
+            updateRoleButtonStyles(user);
+            await fetchCurrentUser();
+            await loadDashboardStats();
+            await loadDomains();
+        }
+
+        function updateRoleButtonStyles(user) {
+            document.querySelectorAll('#role-buttons button').forEach(b => {
+                b.className = "px-2.5 sm:px-3 py-1 rounded-md font-medium text-[11px] sm:text-xs text-gray-400 hover:text-gray-200 transition-all flex items-center gap-1";
+            });
+            const activeBtn = document.getElementById(`btn-${user}`);
+            if (activeBtn) {
+                activeBtn.className = "px-2.5 sm:px-3 py-1 rounded-md font-semibold text-[11px] sm:text-xs transition-all bg-cyan-600 text-white shadow-sm flex items-center gap-1";
+            }
+        }
+
+        function updateUserUI(data) {
+            document.getElementById('user-display-name').innerText = data.fullName;
+            document.getElementById('user-role-badge').innerText = data.role;
+
+            const initials = data.username === 'krishna' ? 'KS' : (data.username === 'alex' ? 'AM' : 'SC');
+            const avatar = document.getElementById('user-avatar-initials');
+            if (avatar) avatar.innerText = initials;
+
+            updateSandboxVisibility();
+        }
+
+        async function fetchCurrentUser() {
+            try {
+                const res = await fetch('/api/auth/me', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
+                    currentUser.role = data.role;
+                    currentUser.isSuperAdmin = data.isSuperAdmin;
+                    currentUser.fullName = data.fullName;
+                    updateUserUI(data);
+                    return true;
+                } else if (res.status === 401) {
+                    openLoginModal();
+                    return false;
+                }
+            } catch (e) {
+                console.error("Auth me error:", e);
+                return false;
+            }
+        }
+
+        function updateSandboxVisibility() {
+            const lockedBanner = document.getElementById('sandbox-locked-banner');
+            const unlockedContainer = document.getElementById('sandbox-unlocked-container');
+            const lockedRoleName = document.getElementById('locked-role-name');
+
+            if (currentUser.isSuperAdmin) {
+                lockedBanner.classList.add('hidden');
+                unlockedContainer.classList.remove('hidden');
+            } else {
+                lockedBanner.classList.remove('hidden');
+                unlockedContainer.classList.add('hidden');
+                lockedRoleName.innerText = currentUser.role;
+            }
+        }
+
+        // Tab Navigation
+        function showTab(tabId) {
+            activeTab = tabId;
+            const tabs = ['radar', 'simulation', 'domains', 'firewall', 'audit'];
+            tabs.forEach(t => {
+                const section = document.getElementById(`tab-${t}`);
+                const btnDesktop = document.getElementById(`tab-btn-${t}`);
+                const btnMobile = document.getElementById(`mobile-tab-btn-${t}`);
+
+                if (t === tabId) {
+                    section.classList.remove('hidden');
+                    if (btnDesktop) {
+                        btnDesktop.className = "px-3 py-2 text-xs font-semibold rounded-lg text-cyan-400 bg-gray-900 border border-gray-800 flex items-center gap-1.5 transition";
+                    }
+                    if (btnMobile) {
+                        btnMobile.className = "px-2.5 py-1 rounded-md text-[11px] font-semibold bg-gray-800 text-cyan-400 border border-gray-700 whitespace-nowrap flex items-center gap-1";
+                    }
+                } else {
+                    section.classList.add('hidden');
+                    if (btnDesktop) {
+                        btnDesktop.className = "px-3 py-2 text-xs font-semibold rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-900/50 flex items-center gap-1.5 transition";
+                    }
+                    if (btnMobile) {
+                        btnMobile.className = "px-2.5 py-1 rounded-md text-[11px] font-medium text-gray-400 hover:text-white whitespace-nowrap flex items-center gap-1";
+                    }
+                }
+            });
+            lucide.createIcons();
+        }
+
+        // Load Dashboard Metrics & Charts
+        async function loadDashboardStats() {
+            try {
+                const res = await fetch('/api/dashboard/stats', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('stat-domains').innerText = data.totalMonitoredDomains;
+                    document.getElementById('stat-requests').innerText = data.totalRequestsProcessed.toLocaleString();
+                    document.getElementById('stat-blocked').innerText = data.totalBlockedAttacks.toLocaleString();
+                    document.getElementById('stat-bans').innerText = data.activeBannedIps;
+
+                    renderThreatChart(data.attacksByType);
+                    renderCountryChart(data.attacksByCountry);
+                }
+            } catch (e) {
+                console.error("Failed to load dashboard stats", e);
+            }
+        }
+
+        function renderThreatChart(attacksByType) {
+            const ctx = document.getElementById('chart-threats').getContext('2d');
+            const labels = Object.keys(attacksByType);
+            const data = Object.values(attacksByType);
+
+            if (threatChart) {
+                threatChart.data.labels = labels;
+                threatChart.data.datasets[0].data = data;
+                threatChart.update();
+                return;
+            }
+
+            threatChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: ['#ef4444', '#f97316', '#8b5cf6', '#06b6d4', '#eab308', '#ec4899', '#10b981'],
+                        borderColor: '#0f172a',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: window.innerWidth < 640 ? 'bottom' : 'right',
+                            labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 10 }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderCountryChart(attacksByCountry) {
+            const ctx = document.getElementById('chart-countries').getContext('2d');
+            const labels = attacksByCountry.map(c => c.country);
+            const data = attacksByCountry.map(c => c.count);
+
+            if (countryChart) {
+                countryChart.data.labels = labels;
+                countryChart.data.datasets[0].data = data;
+                countryChart.update();
+                return;
+            }
+
+            countryChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Threat Count',
+                        data: data,
+                        backgroundColor: '#ef4444',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { display: false } },
+                        y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#1f2937' } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        // Live Incident Feed & Radar Filters (with 6-month time range support)
+        async function fetchLiveIncidents() {
+            try {
+                const timeRange = document.getElementById('filter-time-range')?.value || 'all';
+                const res = await fetch(`/api/dashboard/live-feed?timeRange=${timeRange}&limit=200`, { headers: getAuthHeaders() });
+                if (res.ok) {
+                    allIncidents = await res.json();
+                    updateDomainFilterDropdown();
+                    applyIncidentFilters();
+                }
+            } catch (e) {
+                console.error("Live feed error", e);
+            }
+        }
+
+        // Database Persistence & 6-Month Data Retention Telemetry
+        async function loadRetentionStats() {
+            try {
+                const res = await fetch('/api/reports/retention/stats', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
+                    const engineEl = document.getElementById('retention-db-engine');
+                    const descEl = document.getElementById('retention-window-desc');
+                    const recEl = document.getElementById('retention-total-records');
+                    const oldEl = document.getElementById('retention-oldest-record');
+
+                    if (engineEl) engineEl.innerText = data.databaseEngine || 'SQL Engine';
+                    if (descEl) descEl.innerText = data.retentionWindowDescription || '180 Days (6 Months)';
+                    if (recEl) recEl.innerText = `${data.totalStoredIncidents || 0} Records`;
+                    if (oldEl) {
+                        if (data.oldestRecordedIncident && data.oldestRecordedIncident !== 'N/A') {
+                            const d = new Date(data.oldestRecordedIncident);
+                            oldEl.innerText = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                        } else {
+                            oldEl.innerText = 'Active Real-Time';
+                        }
+                    }
+                }
+            } catch (e) {
+                console.debug("Retention stats lookup:", e);
+            }
+        }
+
+        // Manual Data Retention Cleanup Trigger
+        async function triggerRetentionPurge() {
+            if (!currentUser.isSuperAdmin) {
+                alert("Restricted Clearance: Only Super Administrators can trigger manual database retention purge cycles.");
+                return;
+            }
+            const days = prompt("Enter retention threshold in days for cleanup cycle (default: 180 days / 6 months):", "180");
+            if (!days) return;
+
+            try {
+                const res = await fetch(`/api/reports/retention/purge?days=${parseInt(days) || 180}`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    const result = await res.json();
+                    alert(`✅ Data Retention Sweep Complete:\n• Policy Threshold: ${result.retentionDays} Days\n• Expired Incidents Purged: ${result.incidentsPurged}\n• Audit Logs Purged: ${result.auditLogsPurged}\n• Status: ${result.status}`);
+                    await loadRetentionStats();
+                    await fetchLiveIncidents();
+                    await loadAuditTrail();
+                    await loadDashboardStats();
+                } else {
+                    alert("Failed to execute retention purge: " + res.statusText);
+                }
+            } catch (e) {
+                alert("Error triggering retention purge: " + e.message);
+            }
+        }
+
+        function updateDomainFilterDropdown() {
+            const select = document.getElementById('filter-domain');
+            if (!select) return;
+            const currentVal = select.value;
+            const uniqueDomains = [...new Set(allIncidents.map(i => i.domainName).filter(Boolean))];
+
+            // Keep first option
+            select.innerHTML = '<option value="">All Monitored Domains</option>';
+            uniqueDomains.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d;
+                opt.innerText = d;
+                if (d === currentVal) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+
+        function applyIncidentFilters() {
+            const searchInput = (document.getElementById('filter-search')?.value || '').toLowerCase().trim();
+            const threatType = document.getElementById('filter-threat-type')?.value || '';
+            const severity = document.getElementById('filter-severity')?.value || '';
+            const domain = (document.getElementById('filter-domain')?.value || '').toLowerCase().trim();
+
+            const filtered = allIncidents.filter(inc => {
+                if (threatType && inc.threatType !== threatType) return false;
+                if (severity && inc.threatSeverity !== severity) return false;
+                if (domain && inc.domainName && inc.domainName.toLowerCase() !== domain) return false;
+                if (searchInput) {
+                    const matchIp = (inc.clientIp || '').toLowerCase().includes(searchInput);
+                    const matchDomain = (inc.domainName || '').toLowerCase().includes(searchInput);
+                    const matchCountry = (inc.clientCountry || '').toLowerCase().includes(searchInput);
+                    const matchRule = (inc.matchedRule || '').toLowerCase().includes(searchInput);
+                    const matchPayload = (inc.rawPayloadSnippet || '').toLowerCase().includes(searchInput);
+                    const matchType = (inc.threatType || '').toLowerCase().includes(searchInput);
+                    if (!matchIp && !matchDomain && !matchCountry && !matchRule && !matchPayload && !matchType) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+
+            // Update incident counter badge
+            const counter = document.getElementById('filtered-incident-count');
+            if (counter) {
+                if (filtered.length === allIncidents.length) {
+                    counter.innerText = `${allIncidents.length} Neutralized Events`;
+                } else {
+                    counter.innerText = `Showing ${filtered.length} of ${allIncidents.length} (Filtered)`;
+                }
+            }
+
+            // Render table rows
+            const tbody = document.getElementById('incidents-table-body');
+            tbody.innerHTML = '';
+
+            if (filtered.length === 0) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td colspan="7" class="p-6 text-center text-gray-500 font-mono text-xs">No security incidents matched the active filter parameters.</td>`;
+                tbody.appendChild(tr);
+                return;
+            }
+
+            filtered.forEach(inc => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-gray-800/40 transition";
+
+                const dateObj = new Date(inc.timestamp);
+                const isToday = new Date().toDateString() === dateObj.toDateString();
+                const timeStr = isToday
+                    ? dateObj.toLocaleTimeString()
+                    : `${dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+                const flag = inc.clientCountryCode === 'IN' ? '🇮🇳' : inc.clientCountryCode === 'US' ? '🇺🇸' : inc.clientCountryCode === 'DE' ? '🇩🇪' : inc.clientCountryCode === 'RU' ? '🇷🇺' : inc.clientCountryCode === 'CN' ? '🇨🇳' : inc.clientCountryCode === 'GB' ? '🇬🇧' : '🌐';
+
+                const sevColor = inc.threatSeverity === 'CRITICAL' ? 'text-red-400 bg-red-950/80 border-red-800' : (inc.threatSeverity === 'HIGH' ? 'text-orange-400 bg-orange-950/80 border-orange-800' : 'text-amber-400 bg-amber-950/80 border-amber-800');
+
+                tr.innerHTML = `
+                    <td class="p-3 text-gray-400 whitespace-nowrap">${timeStr}</td>
+                    <td class="p-3 font-bold text-gray-200 truncate max-w-[140px] sm:max-w-none" title="${inc.domainName}">${inc.domainName}</td>
+                    <td class="p-3 text-cyan-300 whitespace-nowrap">${flag} ${inc.clientIp}</td>
+                    <td class="p-3"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950 text-red-400 border border-red-800">${inc.threatType}</span></td>
+                    <td class="p-3 font-bold"><span class="px-1.5 py-0.5 rounded text-[10px] font-mono border ${sevColor}">${inc.threatScore}/100</span></td>
+                    <td class="p-3 font-bold text-red-400 whitespace-nowrap">${inc.actionTaken}</td>
+                    <td class="p-3 text-gray-400 truncate max-w-[150px] sm:max-w-xs" title="${inc.rawPayloadSnippet || ''}">${inc.matchedRule || 'WAF_RULE'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function resetIncidentFilters() {
+            const searchInput = document.getElementById('filter-search');
+            const threatType = document.getElementById('filter-threat-type');
+            const severity = document.getElementById('filter-severity');
+            const domain = document.getElementById('filter-domain');
+            const timeRange = document.getElementById('filter-time-range');
+
+            if (searchInput) searchInput.value = '';
+            if (threatType) threatType.value = '';
+            if (severity) severity.value = '';
+            if (domain) domain.value = '';
+            if (timeRange) timeRange.value = 'all';
+
+            fetchLiveIncidents();
+        }
+
+        // Red Team Attack Presets
+        async function loadPresets() {
+            try {
+                const res = await fetch('/api/simulation/presets', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    cachedPresets = await res.json();
+                    const select = document.getElementById('attack-preset-select');
+                    select.innerHTML = '<option value="">-- Choose an Attack Preset --</option>';
+                    cachedPresets.forEach((p, idx) => {
+                        const opt = document.createElement('option');
+                        opt.value = idx;
+                        opt.innerText = `[${p.category}] ${p.title}`;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch (e) {
+                console.error("Presets error", e);
+            }
+        }
+
+        function applyPresetPayload() {
+            const idx = document.getElementById('attack-preset-select').value;
+            if (idx !== "") {
+                const preset = cachedPresets[idx];
+                document.getElementById('sim-threat-type').value = preset.category;
+                document.getElementById('sim-payload').value = preset.payload;
+            }
+        }
+
+        // Fire Attack Payload (Simulation)
+        async function fireAttackSimulation() {
+            if (!currentUser.isSuperAdmin) {
+                alert("Restricted: Super Administrator role required to run attack simulation!");
+                return;
+            }
+
+            const threatType = document.getElementById('sim-threat-type').value;
+            const targetDomain = document.getElementById('sim-target-domain').value;
+            const payload = document.getElementById('sim-payload').value;
+            const clientIp = document.getElementById('sim-attacker-ip').value;
+
+            if (!payload.trim()) {
+                alert("Please enter or select a payload!");
+                return;
+            }
+
+            const btn = document.getElementById('btn-fire-attack');
+            btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Inspecting...`;
+
+            try {
+                const res = await fetch('/api/simulation/attack', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ threatType, targetDomain, payload, clientIp })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('sim-result-placeholder').classList.add('hidden');
+                    document.getElementById('sim-result-card').classList.remove('hidden');
+
+                    document.getElementById('res-status-badge').innerText = data.intercepted ? "INTERCEPTED & BLOCKED" : "PASSED";
+                    document.getElementById('res-status-badge').className = data.intercepted ? "px-2 py-0.5 rounded text-[10px] sm:text-xs font-mono font-bold bg-red-950 text-red-400 border border-red-800" : "px-2 py-0.5 rounded text-[10px] sm:text-xs font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-800";
+
+                    document.getElementById('res-action').innerText = `${data.actionTaken} (${data.intercepted ? 'BLOCKED' : 'CLEAN'})`;
+                    document.getElementById('res-rule').innerText = data.matchedRule;
+                    document.getElementById('res-score').innerText = `${data.threatScore} / 100 (${data.severity})`;
+                    document.getElementById('res-time').innerText = `${data.executionTimeMs} ms (Virtual Loom)`;
+                    document.getElementById('res-alert').innerText = data.severity === 'CRITICAL' ? "📧 Email + 📱 SMS Dispatched" : "📧 Email Alert Dispatched";
+                    document.getElementById('res-snippet').innerText = data.payloadSnippet;
+
+                    // Reload stats and live feed
+                    loadDashboardStats();
+                    fetchLiveIncidents();
+                    loadAuditTrail();
+                } else {
+                    alert("Simulation request rejected: " + res.statusText);
+                }
+            } catch (e) {
+                alert("Error during simulation: " + e.message);
+            } finally {
+                btn.innerHTML = `<i data-lucide="crosshair" class="w-4 h-4"></i> Fire Attack Payload`;
+                lucide.createIcons();
+            }
+        }
+
+        // Fire DoS Flood Test
+        async function fireFloodSimulation() {
+            if (!currentUser.isSuperAdmin) {
+                alert("Restricted: Super Admin role required!");
+                return;
+            }
+
+            const targetDomain = document.getElementById('sim-target-domain').value;
+            const btn = document.getElementById('btn-fire-flood');
+            btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Flooding...`;
+
+            try {
+                const res = await fetch('/api/simulation/flood', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ targetDomain, requestCount: 50 })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    alert(`🌊 DDoS Flood Interception Complete!\n\n• Requests Sent: ${data.totalRequestsSent}\n• Neutralized by WAF: ${data.blockedCount}\n• Firewall Jail: ${data.ipJailed ? 'IP Jailed & Blocked' : 'Rate Limited'}\n• Duration: ${data.totalDurationMs} ms`);
+                    loadDashboardStats();
+                    fetchLiveIncidents();
+                    loadBannedIps();
+                    loadAuditTrail();
+                }
+            } catch (e) {
+                alert("Flood error: " + e.message);
+            } finally {
+                btn.innerHTML = `<i data-lucide="flame-kindling" class="w-4 h-4"></i> 50-Req DoS Flood`;
+                lucide.createIcons();
+            }
+        }
+
+        // Monitored Domains List
+        async function loadDomains() {
+            try {
+                const res = await fetch('/api/domains', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const domains = await res.json();
+                    const grid = document.getElementById('domain-cards-grid');
+                    grid.innerHTML = '';
+
+                    // Sync sim target domain select
+                    const simSelect = document.getElementById('sim-target-domain');
+                    if (simSelect && domains.length > 0) {
+                        const currentVal = simSelect.value;
+                        simSelect.innerHTML = '';
+                        domains.forEach(d => {
+                            const opt = document.createElement('option');
+                            opt.value = d.domainName;
+                            opt.innerText = `${d.displayName || d.domainName} (${d.domainName})`;
+                            if (d.domainName === currentVal) opt.selected = true;
+                            simSelect.appendChild(opt);
+                        });
+                    }
+
+                    domains.forEach(d => {
+                        const card = document.createElement('div');
+                        card.className = "bg-gray-900/90 border border-gray-800 rounded-xl p-4 sm:p-5 space-y-3 sm:space-y-4 hover:border-gray-700 transition flex flex-col justify-between";
+
+                        card.innerHTML = `
+                            <div>
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="truncate">
+                                        <h4 class="font-bold text-white text-sm sm:text-base truncate">${d.displayName || d.domainName}</h4>
+                                        <p class="text-xs text-cyan-400 font-mono truncate">${d.domainName}</p>
+                                    </div>
+                                    <span class="px-1.5 py-0.5 text-[9px] sm:text-[10px] font-mono font-bold rounded shrink-0 ${d.healthStatus === 'HEALTHY' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}">${d.healthStatus || 'HEALTHY'}</span>
+                                </div>
+
+                                <div class="space-y-1 text-xs text-gray-400 font-mono mt-3">
+                                    <p class="truncate">Primary IP: <span class="text-gray-200">${d.primaryIp || 'Resolving...'}</span></p>
+                                    <p class="truncate">SSL Status: <span class="text-emerald-400">${d.sslDaysRemaining ? d.sslDaysRemaining + ' days left' : 'Active SSL'}</span></p>
+                                    <p class="truncate">Registrar: <span class="text-gray-300">${d.registrar || 'Hostinger / Global'}</span></p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between pt-3 border-t border-gray-800 text-xs">
+                                <span class="text-red-400 font-mono text-[11px]">${d.blockedRequests || 0} Blocked</span>
+                                <button onclick="openDomainDetails(${d.id})" class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 active:scale-95 text-gray-200 rounded font-medium text-xs transition">Deep-Dive</button>
+                            </div>
+                        `;
+                        grid.appendChild(card);
+                    });
+                }
+            } catch (e) {
+                console.error("Domains load error", e);
+            }
+        }
+
+        let currentViewingDomainId = null;
+
+        // Domain Deep-Dive Drawer
+        async function openDomainDetails(domainId) {
+            currentViewingDomainId = domainId;
+            try {
+                const res = await fetch(`/api/domains/${domainId}/report`, { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('detail-domain-name').innerText = data.domain.domainName;
+                    document.getElementById('detail-domain-ip').innerText = `Primary IPv4: ${data.domain.primaryIp || 'N/A'} | Country: ${data.geo.country} ${data.geo.flag}`;
+
+                    // WHOIS
+                    const whoisReg = data.whois && data.whois.registrar ? data.whois.registrar : 'N/A';
+                    document.getElementById('detail-whois-registrar').innerText = whoisReg;
+                    document.getElementById('detail-whois-created').innerText = data.whois.creationDate || 'N/A';
+                    document.getElementById('detail-whois-expires').innerText = data.whois.expirationDate || 'N/A';
+                    document.getElementById('detail-whois-status').innerText = data.whois.status || 'ACTIVE';
+
+                    // SSL
+                    const hasSsl = data.ssl && data.ssl.hasSsl;
+                    document.getElementById('detail-ssl-status').innerText = data.ssl.status || (hasSsl ? 'VALID' : 'NONE');
+                    document.getElementById('detail-ssl-status').className = hasSsl ? "text-emerald-400 font-bold" : "text-amber-400 font-bold";
+                    document.getElementById('detail-ssl-issuer').innerText = hasSsl ? (data.ssl.issuer || 'N/A') : 'None (No SSL Listener on Port 443)';
+                    document.getElementById('detail-ssl-days').innerText = hasSsl ? `${data.ssl.daysRemaining} days remaining` : 'N/A';
+                    document.getElementById('detail-ssl-cipher').innerText = hasSsl ? `${data.ssl.tlsVersion} (${data.ssl.cipherSuite})` : 'N/A';
+
+                    // DNS records
+                    const tbody = document.getElementById('detail-dns-tbody');
+                    tbody.innerHTML = '';
+                    data.dns.allRecords.forEach(r => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="p-2 font-bold text-cyan-400">${r.type}</td>
+                            <td class="p-2 text-gray-300 break-all">${r.value}</td>
+                            <td class="p-2 text-gray-500">${r.ttl}s</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+
+                    document.getElementById('modal-domain-details').classList.remove('hidden');
+                    lucide.createIcons();
+                }
+            } catch (e) {
+                alert("Failed to load deep report: " + e.message);
+            }
+        }
+
+        async function rescanCurrentDomain() {
+            if (!currentViewingDomainId) return;
+            const btn = document.getElementById('btn-rescan-domain');
+            btn.innerHTML = `<i data-lucide="loader" class="w-3 h-3 animate-spin"></i> Scanning...`;
+
+            try {
+                const res = await fetch(`/api/domains/${currentViewingDomainId}/refresh`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    await openDomainDetails(currentViewingDomainId);
+                    await loadDomains();
+                    await loadDashboardStats();
+                }
+            } catch (e) {
+                alert("Rescan error: " + e.message);
+            } finally {
+                btn.innerHTML = `<i data-lucide="refresh-cw" class="w-3 h-3"></i> Re-Scan Intel`;
+                lucide.createIcons();
+            }
+        }
+
+        function closeDomainDetailsModal() {
+            document.getElementById('modal-domain-details').classList.add('hidden');
+        }
+
+        // Add Domain Modal
+        function openAddDomainModal() {
+            document.getElementById('modal-add-domain').classList.remove('hidden');
+        }
+
+        function closeAddDomainModal() {
+            document.getElementById('modal-add-domain').classList.add('hidden');
+        }
+
+        async function submitAddDomain() {
+            const domainName = document.getElementById('modal-domain-input').value;
+            const displayName = document.getElementById('modal-domain-label').value;
+
+            if (!domainName) {
+                alert("Please enter a domain name!");
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/domains', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ domainName, displayName })
+                });
+
+                if (res.ok) {
+                    closeAddDomainModal();
+                    loadDomains();
+                    loadDashboardStats();
+                } else {
+                    alert("Failed to add domain: " + res.statusText);
+                }
+            } catch (e) {
+                alert("Error adding domain: " + e.message);
+            }
+        }
+
+        // Firewall Banned IPs
+        async function loadBannedIps() {
+            try {
+                const res = await fetch('/api/firewall/banned-ips', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const bans = await res.json();
+                    const tbody = document.getElementById('firewall-table-body');
+                    tbody.innerHTML = '';
+
+                    bans.forEach(b => {
+                        const tr = document.createElement('tr');
+                        tr.className = "hover:bg-gray-800/40 transition";
+                        tr.innerHTML = `
+                            <td class="p-3 font-bold text-red-400 whitespace-nowrap">${b.ipAddress}</td>
+                            <td class="p-3 text-gray-300">${b.country || 'Global'}</td>
+                            <td class="p-3 text-gray-400 truncate max-w-[150px] sm:max-w-xs">${b.reason}</td>
+                            <td class="p-3 font-bold text-amber-400">${b.violationCount}</td>
+                            <td class="p-3 text-cyan-300 whitespace-nowrap">${new Date(b.bannedUntil).toLocaleTimeString()}</td>
+                            <td class="p-3">
+                                <button onclick="unbanIp('${b.ipAddress}')" class="px-2 py-0.5 bg-gray-800 hover:bg-emerald-900/60 active:scale-95 text-emerald-400 text-[10px] sm:text-[11px] rounded border border-gray-700 transition">Release</button>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
+            } catch (e) {
+                console.error("Bans load error", e);
+            }
+        }
+
+        async function unbanIp(ip) {
+            try {
+                const res = await fetch(`/api/firewall/unban?ipAddress=${ip}`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    loadBannedIps();
+                    loadDashboardStats();
+                }
+            } catch (e) {
+                alert("Error unbanning IP: " + e.message);
+            }
+        }
+
+        function openManualBanModal() {
+            const ip = prompt("Enter IP address to jail in firewall:");
+            if (ip) {
+                fetch('/api/firewall/ban', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ ipAddress: ip, reason: "Manual Administrator Intervention", durationSeconds: 600 })
+                }).then(() => {
+                    loadBannedIps();
+                    loadDashboardStats();
+                });
+            }
+        }
+
+        // Audit & Alerts Trail
+        async function loadAuditTrail() {
+            try {
+                // Audit Logs
+                const resAudit = await fetch('/api/reports/audit', { headers: getAuthHeaders() });
+                if (resAudit.ok) {
+                    const logs = await resAudit.json();
+                    const list = document.getElementById('audit-trail-list');
+                    list.innerHTML = '';
+
+                    logs.forEach(l => {
+                        const item = document.createElement('div');
+                        item.className = "p-2.5 sm:p-3 rounded-lg bg-gray-950 border border-gray-800/80 font-mono text-xs space-y-1";
+                        item.innerHTML = `
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-cyan-400">👤 ${l.performedBy} (${l.role})</span>
+                                <span class="text-gray-500 text-[10px]">${new Date(l.timestamp).toLocaleTimeString()}</span>
+                            </div>
+                            <p class="text-red-400 font-bold">${l.attackType} &rarr; ${l.targetDomain}</p>
+                            <p class="text-gray-400 text-[11px] truncate">Payload: ${l.testPayload}</p>
+                            <p class="text-emerald-400 text-[10px]">${l.outcomeDescription}</p>
+                        `;
+                        list.appendChild(item);
+                    });
+                }
+
+                // Dispatched Alerts
+                const resAlerts = await fetch('/api/dashboard/alerts', { headers: getAuthHeaders() });
+                if (resAlerts.ok) {
+                    const alerts = await resAlerts.json();
+                    const list = document.getElementById('alerts-trail-list');
+                    list.innerHTML = '';
+
+                    alerts.forEach(a => {
+                        const item = document.createElement('div');
+                        item.className = "p-2.5 sm:p-3 rounded-lg bg-gray-950 border border-gray-800/80 font-mono text-xs space-y-1";
+                        item.innerHTML = `
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-purple-400">${a.type === 'EMAIL' ? '📧 EMAIL' : '📱 SMS'} &rarr; ${a.recipient}</span>
+                                <span class="text-gray-500 text-[10px]">${new Date(a.dispatchedAt).toLocaleTimeString()}</span>
+                            </div>
+                            <p class="text-gray-300 font-medium">${a.subject}</p>
+                            <span class="inline-block px-1.5 py-0.2 rounded text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800">${a.status}</span>
+                        `;
+                        list.appendChild(item);
+                    });
+                }
+            } catch (e) {
+                console.error("Audit trail load error", e);
+            }
+        }
+
+        // PDF Security Audit Export
+        async function downloadPdfReport() {
+            try {
+                const res = await fetch('/api/reports/pdf', { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `sentinelguard-security-report-${new Date().toISOString().slice(0, 10)}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    a.remove();
+                } else {
+                    alert("Failed to generate PDF report: HTTP " + res.status);
+                }
+            } catch (e) {
+                alert("Error exporting PDF report: " + e.message);
+            }
+        }
+    </script>
+</body>
+</html>

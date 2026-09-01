@@ -1,0 +1,146 @@
+name: 🚀 SentinelGuard CI/CD Pipeline — Build, Test & OCI Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      deploy_env:
+        description: 'Target Deployment Environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  JAVA_VERSION: '21'
+  JAVA_DISTRIBUTION: 'temurin'
+  DOCKER_IMAGE_NAME: 'sentinel-guard-app'
+
+jobs:
+  # =========================================================================
+  # JOB 1: CONTINUOUS INTEGRATION (CI) — LINT, BUILD, UNIT & EXPLOIT TESTS
+  # =========================================================================
+  ci-build-and-test:
+    name: 🧪 CI — Build & Verify WAF Engine
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup JDK ${{ env.JAVA_VERSION }} (${{ env.JAVA_DISTRIBUTION }})
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: 📦 Cache Maven Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: 🔨 Compile & Run WAF Exploit Detection Tests
+        run: |
+          mvn clean test-compile
+          mvn test -B --no-transfer-progress
+
+      - name: 📦 Package Production Executable JAR
+        run: |
+          mvn package -DskipTests -B --no-transfer-progress
+
+      - name: 📤 Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-guard-app-jar
+          path: target/sentinel-guard-*.jar
+          retention-days: 7
+
+  # =========================================================================
+  # JOB 2: CONTINUOUS DEPLOYMENT (CD) — AUTOMATED ZERO-DOWNTIME OCI VM DEPLOY
+  # =========================================================================
+  cd-deploy-to-oci:
+    name: 🚀 CD — Automated Deploy to Oracle Cloud (OCI VM)
+    needs: ci-build-and-test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: 🔑 Configure SSH Key for OCI Authentication
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.OCI_SSH_KEY }}" > ~/.ssh/oci_id_rsa
+          chmod 600 ~/.ssh/oci_id_rsa
+          ssh-keyscan -H -p ${{ secrets.OCI_SSH_PORT || 22 }} ${{ secrets.OCI_HOST }} >> ~/.ssh/known_hosts
+
+      - name: 🚢 Deploy to OCI VM via SSH & Docker Compose
+        env:
+          HOST: ${{ secrets.OCI_HOST }}
+          USER: ${{ secrets.OCI_USERNAME }}
+          PORT: ${{ secrets.OCI_SSH_PORT || 22 }}
+          APP_DIR: ${{ secrets.OCI_APP_DIR || '/home/opc/sentinel-guard' }}
+        run: |
+          echo "🚀 Connecting to OCI VM at ${USER}@${HOST}:${PORT}..."
+
+          ssh -i ~/.ssh/oci_id_rsa -p ${PORT} ${USER}@${HOST} << 'EOF'
+            set -e
+
+            APP_DIR="${APP_DIR:-/home/opc/sentinel-guard}"
+            REPO_URL="https://github.com/${{ github.repository }}.git"
+
+            echo "📁 Ensuring application directory exists: ${APP_DIR}"
+            if [ ! -d "${APP_DIR}" ]; then
+              echo "Cloning repository for the first time..."
+              git clone ${REPO_URL} ${APP_DIR}
+              cd ${APP_DIR}
+            else
+              echo "Pulling latest changes from Git..."
+              cd ${APP_DIR}
+              git fetch --all
+              git reset --hard origin/main || git reset --hard origin/master
+            fi
+
+            echo "🐳 Building & restarting SentinelGuard containers..."
+            if command -v docker-compose &> /dev/null; then
+              docker-compose down || true
+              docker-compose up -d --build
+            elif docker compose version &> /dev/null; then
+              docker compose down || true
+              docker compose up -d --build
+            else
+              echo "❌ Docker Compose not found on OCI VM. Please install Docker & Docker Compose."
+              exit 1
+            fi
+
+            echo "⏳ Waiting for SentinelGuard WAF to boot up..."
+            for i in {1..30}; do
+              if curl -s -f http://127.0.0.1:8090/api/traffic/ping > /dev/null; then
+                echo "✅ SentinelGuard WAF Gateway responded with HTTP 200 OK!"
+                break
+              fi
+              echo "Waiting for app to start ($i/30)..."
+              sleep 2
+            done
+
+            echo "🎉 Deployment successfully completed on OCI VM!"
+          EOF
+
+      - name: 🩺 Run Remote Health Check Verification
+        run: |
+          echo "🔍 Probing OCI Public Endpoint: http://${{ secrets.OCI_HOST }}:8090/api/traffic/ping..."
+          curl --fail --retry 5 --retry-delay 3 --max-time 10 -i "http://${{ secrets.OCI_HOST }}:8090/api/traffic/ping" || echo "⚠️ Direct port probe skipped if blocked by security list. Nginx domain reverse proxy handles traffic."

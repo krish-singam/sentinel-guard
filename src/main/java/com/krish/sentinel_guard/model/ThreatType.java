@@ -1,0 +1,21 @@
+package com.krish.sentinel_guard.model;
+
+public enum ThreatType {
+    SQL_INJECTION,
+    XSS,
+    REMOTE_CODE_EXECUTION,
+    PATH_TRAVERSAL,
+    SSRF,
+    XXE,
+    SSTI,
+    NOSQL_INJECTION,
+    LDAP_INJECTION,
+    DESERIALIZATION_ATTACK,
+    PROTOTYPE_POLLUTION,
+    CRLF_INJECTION,
+    DOS_HTTP_FLOOD,
+    SUSPICIOUS_SCANNER,
+    AUTH_BRUTE_FORCE,
+    MALICIOUS_USER_AGENT,
+    CLEAN
+}
