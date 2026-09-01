@@ -48,7 +48,7 @@ public class DashboardController {
 
     @GetMapping("/stats")
     public ResponseEntity<DashboardStats> getDashboardStats() {
-        List<MonitoredDomain> domains = domainRepository.findAll();
+        List<MonitoredDomain> domains = domainRepository.findAllByOrderByIdAsc();
 
         long totalDomains = domains.size();
         long totalRequests = domains.stream().mapToLong(MonitoredDomain::getTotalRequests).sum();

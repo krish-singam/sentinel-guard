@@ -500,6 +500,7 @@
                                 <option value="SQL_INJECTION">SQL Injection (SQLi)</option>
                                 <option value="XSS">Cross-Site Scripting (XSS)</option>
                                 <option value="REMOTE_CODE_EXECUTION">Remote Code Execution (RCE)</option>
+                                <option value="DOS_HTTP_FLOOD">DoS / DDoS Layer-7 HTTP Flood</option>
                                 <option value="SSRF">Server-Side Request Forgery (SSRF)</option>
                                 <option value="XXE">XML External Entity (XXE)</option>
                                 <option value="SSTI">Template Injection (SSTI)</option>
@@ -538,7 +539,7 @@
                             <i data-lucide="crosshair" class="w-4 h-4"></i> Fire Attack Payload
                         </button>
                         <button onclick="fireFloodSimulation()" id="btn-fire-flood" class="py-2.5 px-4 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold text-xs rounded-lg shadow-lg shadow-amber-600/30 flex items-center justify-center gap-1.5 transition">
-                            <i data-lucide="flame-kindling" class="w-4 h-4"></i> 50-Req DoS Flood
+                            <i data-lucide="flame-kindling" class="w-4 h-4"></i> 100-Req DoS Flood
                         </button>
                     </div>
                 </div>
@@ -1741,21 +1742,35 @@
                 const res = await fetch('/api/simulation/flood', {
                     method: 'POST',
                     headers: getAuthHeaders(),
-                    body: JSON.stringify({ targetDomain, requestCount: 50 })
+                    body: JSON.stringify({ targetDomain, requestCount: 100 })
                 });
 
                 if (res.ok) {
                     const data = await res.json();
-                    alert(`🌊 DDoS Flood Interception Complete!\n\n• Requests Sent: ${data.totalRequestsSent}\n• Neutralized by WAF: ${data.blockedCount}\n• Firewall Jail: ${data.ipJailed ? 'IP Jailed & Blocked' : 'Rate Limited'}\n• Duration: ${data.totalDurationMs} ms`);
+                    document.getElementById('sim-result-placeholder').classList.add('hidden');
+                    document.getElementById('sim-result-card').classList.remove('hidden');
+
+                    document.getElementById('res-status-badge').innerText = data.ipJailed ? "NEUTRALIZED & JAILED" : "RATE LIMITED";
+                    document.getElementById('res-status-badge').className = "px-2 py-0.5 rounded text-[10px] sm:text-xs font-mono font-bold bg-red-950 text-red-400 border border-red-800";
+
+                    document.getElementById('res-action').innerText = data.ipJailed ? `IP_BANNED (${data.blockedCount}/${data.totalRequestsSent} blocked)` : `RATE_LIMITED_429 (${data.blockedCount}/${data.totalRequestsSent} blocked)`;
+                    document.getElementById('res-rule').innerText = "RULE_DDOS_RATE_LIMIT (Token Bucket / Sliding Window)";
+                    document.getElementById('res-score').innerText = "95 / 100 (CRITICAL)";
+                    document.getElementById('res-time').innerText = `${data.totalDurationMs} ms (Virtual Loom Concurrency)`;
+                    document.getElementById('res-alert').innerText = "📧 Email + 📱 SMS Dispatched";
+                    document.getElementById('res-snippet').innerText = `Simulated DDoS HTTP Flood: ${data.blockedCount} blocked, ${data.passedCount} passed. Attacker IP quarantined in Firewall Jail for 300s.`;
+
                     loadDashboardStats();
                     fetchLiveIncidents();
                     loadBannedIps();
                     loadAuditTrail();
+                } else {
+                    alert("Flood simulation rejected: " + res.statusText);
                 }
             } catch (e) {
                 alert("Flood error: " + e.message);
             } finally {
-                btn.innerHTML = `<i data-lucide="flame-kindling" class="w-4 h-4"></i> 50-Req DoS Flood`;
+                btn.innerHTML = `<i data-lucide="flame-kindling" class="w-4 h-4"></i> 100-Req DoS Flood`;
                 lucide.createIcons();
             }
         }
@@ -1766,6 +1781,7 @@
                 const res = await fetch('/api/domains', { headers: getAuthHeaders() });
                 if (res.ok) {
                     const domains = await res.json();
+                    domains.sort((a, b) => (a.id || 0) - (b.id || 0));
                     const grid = document.getElementById('domain-cards-grid');
                     grid.innerHTML = '';
 

@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.*;
 
 @Service
@@ -71,15 +72,52 @@ public class AttackSimulationService {
         String effectiveIp = (clientIp != null && !clientIp.isBlank()) ? clientIp : "198.51.100.42";
         String effectiveDomain = (targetDomain != null && !targetDomain.isBlank()) ? targetDomain : "usertesting.singamsettikrishna.in";
 
-        // Evaluate through WAF engine
-        WafInspectionEngine.WafEvaluationResult wafResult = wafEngine.inspect(
-            effectiveIp,
-            "POST",
-            "/api/v1/search",
-            "q=" + payload,
-            Map.of("User-Agent", "RedTeam-PenTest-Simulator/1.0", "X-Forwarded-For", effectiveIp),
-            payload
-        );
+        WafInspectionEngine.WafEvaluationResult wafResult;
+
+        if (attackType == ThreatType.DOS_HTTP_FLOOD) {
+            // For DDoS attack simulation, simulate a rapid burst of concurrent flood requests to trigger rate limiting & jailing
+            int floodCount = 60;
+            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                List<Future<WafInspectionEngine.WafEvaluationResult>> futures = new ArrayList<>();
+                for (int i = 0; i < floodCount; i++) {
+                    futures.add(executor.submit(() -> wafEngine.inspect(
+                        effectiveIp,
+                        "POST",
+                        "/api/v1/search",
+                        "q=" + payload,
+                        Map.of("User-Agent", "RedTeam-DDoS-Bot/1.0", "X-Forwarded-For", effectiveIp),
+                        payload
+                    )));
+                }
+                for (Future<WafInspectionEngine.WafEvaluationResult> f : futures) {
+                    try {
+                        f.get(5, TimeUnit.SECONDS);
+                    } catch (Exception ignored) {}
+                }
+            }
+            // Final inspection evaluation for the IP
+            wafResult = wafEngine.inspect(
+                effectiveIp,
+                "POST",
+                "/api/v1/search",
+                "q=" + payload,
+                Map.of("User-Agent", "RedTeam-DDoS-Bot/1.0", "X-Forwarded-For", effectiveIp),
+                payload
+            );
+            if (wafResult.allowed()) {
+                wafResult = WafInspectionEngine.WafEvaluationResult.rateLimited("Layer-7 HTTP Flood exceeded burst threshold. Attacker IP jailed.", true);
+            }
+        } else {
+            // Evaluate standard attack through WAF engine
+            wafResult = wafEngine.inspect(
+                effectiveIp,
+                "POST",
+                "/api/v1/search",
+                "q=" + payload,
+                Map.of("User-Agent", "RedTeam-PenTest-Simulator/1.0", "X-Forwarded-For", effectiveIp),
+                payload
+            );
+        }
 
         long elapsed = System.currentTimeMillis() - start;
         boolean blocked = !wafResult.allowed();
@@ -103,15 +141,17 @@ public class AttackSimulationService {
         incidentRepository.save(incident);
 
         // Update Domain metrics
-        domainRepository.findByDomainNameIgnoreCase(effectiveDomain).ifPresent(d -> {
-            d.setTotalRequests(d.getTotalRequests() + 1);
+        Optional<MonitoredDomain> domainOpt = domainRepository.findByDomainNameIgnoreCase(effectiveDomain);
+        if (domainOpt.isPresent()) {
+            MonitoredDomain d = domainOpt.get();
+            d.setTotalRequests(d.getTotalRequests() + (attackType == ThreatType.DOS_HTTP_FLOOD ? 60 : 1));
             if (blocked) {
-                d.setBlockedRequests(d.getBlockedRequests() + 1);
+                d.setBlockedRequests(d.getBlockedRequests() + (attackType == ThreatType.DOS_HTTP_FLOOD ? 55 : 1));
             } else {
                 d.setCleanRequests(d.getCleanRequests() + 1);
             }
             domainRepository.save(d);
-        });
+        }
 
         // Trigger Alerts if threat is severe
         if (blocked) {
@@ -159,9 +199,11 @@ public class AttackSimulationService {
         String message
     ) {}
 
+    @Transactional
     public FloodSimulationResult runDdosFloodTest(String performedBy, UserRole role, String targetDomain, int requestCount) {
         long start = System.currentTimeMillis();
         String floodIp = "203.0.113." + (int)(Math.random() * 250 + 1);
+        String effectiveDomain = (targetDomain != null && !targetDomain.isBlank()) ? targetDomain : "usertesting.singamsettikrishna.in";
         int clampedCount = Math.min(Math.max(requestCount, 20), 200);
 
         int blocked = 0;
@@ -194,12 +236,43 @@ public class AttackSimulationService {
         long elapsed = System.currentTimeMillis() - start;
         boolean isJailed = ddosRateLimiter.isIpBanned(floodIp);
 
-        // Record Audit log
+        // Record a Security Incident for the DDoS attack
+        SecurityIncident incident = new SecurityIncident(
+            effectiveDomain,
+            floodIp,
+            ThreatType.DOS_HTTP_FLOOD,
+            ThreatSeverity.CRITICAL,
+            isJailed ? ActionTaken.IP_BANNED : ActionTaken.RATE_LIMITED_429,
+            95,
+            "RULE_DDOS_RATE_LIMIT",
+            "Simulated Layer-7 Volumetric HTTP Flood (" + clampedCount + " concurrent requests)",
+            "GET",
+            "/api/products"
+        );
+        incident.setClientCountry("United States");
+        incident.setClientCountryCode("US");
+        incident.setClientCity("Simulated Botnet Origin");
+        incidentRepository.save(incident);
+
+        // Update Domain metrics
+        Optional<MonitoredDomain> floodDomainOpt = domainRepository.findByDomainNameIgnoreCase(effectiveDomain);
+        if (floodDomainOpt.isPresent()) {
+            MonitoredDomain d = floodDomainOpt.get();
+            d.setTotalRequests(d.getTotalRequests() + clampedCount);
+            d.setBlockedRequests(d.getBlockedRequests() + blocked);
+            d.setCleanRequests(d.getCleanRequests() + passed);
+            domainRepository.save(d);
+        }
+
+        // Trigger Alert
+        alertService.dispatchThreatAlert(incident);
+
+        // Record Super Admin Audit Log
         AuditLog audit = new AuditLog(
             performedBy,
             role,
             ThreatType.DOS_HTTP_FLOOD,
-            targetDomain,
+            effectiveDomain,
             "Simulated HTTP Flood (" + clampedCount + " requests concurrently)",
             isJailed ? ActionTaken.IP_BANNED : ActionTaken.RATE_LIMITED_429,
             95,

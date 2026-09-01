@@ -72,7 +72,13 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
         // Extract host domain name
         String hostDomain = resolveHostDomain(request);
 
-        // 1. Check if client IP is currently jailed in Firewall
+        // Allow internal control-plane management APIs and static resources to pass directly to Spring Security
+        if (isStaticResource(path) || isInternalControlPlaneApi(path)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // 1. Check if client IP is currently jailed in Firewall (data-plane traffic)
         Optional<BannedIp> activeBan = bannedIpRepository.findByIpAddressAndActiveTrue(clientIp);
         if (activeBan.isPresent()) {
             BannedIp ban = activeBan.get();
@@ -85,19 +91,6 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
                 ban.setActive(false);
                 bannedIpRepository.save(ban);
             }
-        }
-
-        // Allow bypassing internal asset loading if no query parameters exist
-        if (isStaticResource(path) && (queryString == null || queryString.isEmpty())) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
-        // Allow internal authenticated API polling without query strings to avoid noise,
-        // but ALWAYS inspect query strings, paths, and headers!
-        if (isInternalDashboardPoll(path) && (queryString == null || queryString.isEmpty())) {
-            filterChain.doFilter(request, response);
-            return;
         }
 
         // 2. Collect Headers for Inspection
@@ -220,16 +213,15 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
                path.startsWith("/h2-console");
     }
 
-    private boolean isInternalDashboardPoll(String path) {
-        return path.equals("/api/dashboard/stats") ||
-               path.equals("/api/dashboard/live-feed") ||
-               path.equals("/api/dashboard/alerts") ||
-               path.equals("/api/domains") ||
-               path.equals("/api/firewall/banned-ips") ||
-               path.equals("/api/reports/audit") ||
-               path.equals("/api/auth/me") ||
-               path.equals("/api/auth/roles") ||
-               path.equals("/api/simulation/presets");
+    private boolean isInternalControlPlaneApi(String path) {
+        return path.startsWith("/api/simulation") ||
+               path.startsWith("/api/dashboard") ||
+               path.startsWith("/api/firewall") ||
+               path.startsWith("/api/domains") ||
+               path.startsWith("/api/incidents") ||
+               path.startsWith("/api/reports") ||
+               path.startsWith("/api/audit") ||
+               path.startsWith("/api/auth");
     }
 
     private void updateDomainMetrics(String hostDomain, boolean clean) {

@@ -80,7 +80,7 @@ public class DdosRateLimiter {
         return new RateLimitResult(true, false, bucket.getCurrentRps(), bucket.getAvailableTokens(), "Allowed");
     }
 
-    public void banIp(String ipAddress, String reason, ThreatType threatType, int durationSeconds) {
+    public synchronized void banIp(String ipAddress, String reason, ThreatType threatType, int durationSeconds) {
         long expiryEpoch = Instant.now().toEpochMilli() + (durationSeconds * 1000L);
         activeBans.put(ipAddress, expiryEpoch);
 

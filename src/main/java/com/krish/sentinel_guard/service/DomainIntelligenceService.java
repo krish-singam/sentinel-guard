@@ -127,7 +127,7 @@ public class DomainIntelligenceService {
     }
 
     public List<MonitoredDomain> getAllDomains() {
-        return domainRepository.findAll();
+        return domainRepository.findAllByOrderByIdAsc();
     }
 
     @Transactional

