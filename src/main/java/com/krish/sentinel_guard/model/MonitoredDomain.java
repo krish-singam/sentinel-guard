@@ -39,6 +39,15 @@ public class MonitoredDomain {
     private Boolean isProtected = true;
     private Boolean isLiveMonitoring = true;
 
+    /** Origin backend this WAF reverse-proxies to after a clean inspection, e.g. http://127.0.0.1:8085 */
+    private String originUrl;
+
+    /** True when the domain's DNS A/AAAA records include SentinelGuard's public IP. */
+    private Boolean dnsPointsToWaf = false;
+
+    /** INLINE | DNS_PENDING | NO_ORIGIN | CONTROL_PLANE */
+    private String wafProtectionStatus = "DNS_PENDING";
+
     private LocalDateTime createdAt;
     private LocalDateTime lastCheckedAt;
 
@@ -121,6 +130,15 @@ public class MonitoredDomain {
 
     public Boolean getIsLiveMonitoring() { return isLiveMonitoring; }
     public void setIsLiveMonitoring(Boolean isLiveMonitoring) { this.isLiveMonitoring = isLiveMonitoring; }
+
+    public String getOriginUrl() { return originUrl; }
+    public void setOriginUrl(String originUrl) { this.originUrl = originUrl; }
+
+    public Boolean getDnsPointsToWaf() { return dnsPointsToWaf; }
+    public void setDnsPointsToWaf(Boolean dnsPointsToWaf) { this.dnsPointsToWaf = dnsPointsToWaf; }
+
+    public String getWafProtectionStatus() { return wafProtectionStatus; }
+    public void setWafProtectionStatus(String wafProtectionStatus) { this.wafProtectionStatus = wafProtectionStatus; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

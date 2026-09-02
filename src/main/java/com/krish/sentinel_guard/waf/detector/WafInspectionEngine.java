@@ -3,9 +3,13 @@ package com.krish.sentinel_guard.waf.detector;
 import com.krish.sentinel_guard.model.ActionTaken;
 import com.krish.sentinel_guard.model.ThreatSeverity;
 import com.krish.sentinel_guard.model.ThreatType;
+import com.krish.sentinel_guard.waf.payload.PayloadNormalizer;
+import com.krish.sentinel_guard.waf.payload.PayloadSurface;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -13,12 +17,15 @@ public class WafInspectionEngine {
 
     private final List<ThreatDetector> detectors;
     private final DdosRateLimiter ddosRateLimiter;
+    private final PayloadNormalizer payloadNormalizer;
 
     public WafInspectionEngine(
             List<ThreatDetector> detectors,
-            DdosRateLimiter ddosRateLimiter) {
+            DdosRateLimiter ddosRateLimiter,
+            PayloadNormalizer payloadNormalizer) {
         this.detectors = detectors;
         this.ddosRateLimiter = ddosRateLimiter;
+        this.payloadNormalizer = payloadNormalizer;
     }
 
     public record WafEvaluationResult(
@@ -76,56 +83,44 @@ public class WafInspectionEngine {
      */
     public WafEvaluationResult inspect(String clientIp, String method, String path, String queryString,
                                        Map<String, String> headers, String body) {
+        String contentType = headerIgnoreCase(headers, "content-type");
+        byte[] bodyBytes = body == null ? new byte[0] : body.getBytes(StandardCharsets.UTF_8);
+        List<PayloadSurface> surfaces = payloadNormalizer.normalize(
+                path, queryString, headers, bodyBytes, contentType, StandardCharsets.UTF_8);
+        return inspectSurfaces(clientIp, method, surfaces);
+    }
 
-        // 1. Rate Limit & DDoS check first
+    /**
+     * Inspect every unpacked payload surface with all registered detectors.
+     */
+    public WafEvaluationResult inspectSurfaces(String clientIp, String method, List<PayloadSurface> surfaces) {
         DdosRateLimiter.RateLimitResult rateResult = ddosRateLimiter.checkRateLimit(clientIp);
         if (!rateResult.allowed()) {
             return WafEvaluationResult.rateLimited(rateResult.reason(), rateResult.isBanned());
         }
 
-        // 2. Inspect Request Path
-        if (path != null) {
-            WafEvaluationResult pathResult = runDetectorsOnTarget(path, "URI Path");
-            if (!pathResult.allowed()) return pathResult;
+        if (surfaces == null) {
+            return WafEvaluationResult.clean();
         }
 
-        // 3. Inspect Query String
-        if (queryString != null && !queryString.trim().isEmpty()) {
-            WafEvaluationResult queryResult = runDetectorsOnTarget(queryString, "Query String");
-            if (!queryResult.allowed()) return queryResult;
-        }
-
-        // 4. Inspect Dangerous Headers (User-Agent, Referer, Cookie, etc.)
-        if (headers != null) {
-            for (Map.Entry<String, String> entry : headers.entrySet()) {
-                String headerName = entry.getKey().toLowerCase();
-                String headerVal = entry.getValue();
-
-                if (headerVal == null) continue;
-
-                // Check malicious scanners / tool user-agents
-                if (headerName.equals("user-agent")) {
-                    if (isMaliciousScanner(headerVal)) {
-                        return WafEvaluationResult.blocked(
-                            ThreatType.SUSPICIOUS_SCANNER,
-                            ThreatSeverity.HIGH,
-                            80,
-                            "RULE_MALICIOUS_SCANNER_UA",
-                            headerVal,
-                            "Malicious vulnerability scanner / automated attack tool detected: " + headerVal
-                        );
-                    }
-                }
-
-                WafEvaluationResult headerResult = runDetectorsOnTarget(headerVal, "HTTP Header [" + headerName + "]");
-                if (!headerResult.allowed()) return headerResult;
+        for (PayloadSurface surface : surfaces) {
+            if (surface == null || surface.value() == null || surface.value().isBlank()) {
+                continue;
             }
-        }
-
-        // 5. Inspect Request Body
-        if (body != null && !body.trim().isEmpty()) {
-            WafEvaluationResult bodyResult = runDetectorsOnTarget(body, "HTTP Request Body");
-            if (!bodyResult.allowed()) return bodyResult;
+            if (isUserAgentLocation(surface.location()) && isMaliciousScanner(surface.value())) {
+                return WafEvaluationResult.blocked(
+                        ThreatType.SUSPICIOUS_SCANNER,
+                        ThreatSeverity.HIGH,
+                        80,
+                        "RULE_MALICIOUS_SCANNER_UA",
+                        surface.value(),
+                        "Malicious vulnerability scanner / automated attack tool detected: " + surface.value()
+                );
+            }
+            WafEvaluationResult result = runDetectorsOnTarget(surface.value(), surface.location());
+            if (!result.allowed()) {
+                return result;
+            }
         }
 
         return WafEvaluationResult.clean();
@@ -174,7 +169,7 @@ public class WafInspectionEngine {
     }
 
     private boolean isMaliciousScanner(String ua) {
-        String lower = ua.toLowerCase();
+        String lower = ua.toLowerCase(Locale.ROOT);
         return lower.contains("sqlmap") ||
                lower.contains("nikto") ||
                lower.contains("nmap") ||
@@ -185,5 +180,25 @@ public class WafInspectionEngine {
                lower.contains("w3af") ||
                lower.contains("masscan") ||
                lower.contains("zgrab");
+    }
+
+    private static boolean isUserAgentLocation(String location) {
+        if (location == null) {
+            return false;
+        }
+        String lower = location.toLowerCase(Locale.ROOT);
+        return lower.contains("user-agent");
+    }
+
+    private static String headerIgnoreCase(Map<String, String> headers, String name) {
+        if (headers == null || name == null) {
+            return "";
+        }
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(name)) {
+                return entry.getValue();
+            }
+        }
+        return "";
     }
 }

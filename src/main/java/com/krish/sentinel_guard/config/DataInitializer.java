@@ -6,6 +6,7 @@ import com.krish.sentinel_guard.repository.UserAccountRepository;
 import com.krish.sentinel_guard.service.DomainIntelligenceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -21,23 +22,27 @@ public class DataInitializer implements CommandLineRunner {
     private final UserAccountRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final DomainIntelligenceService domainIntelligenceService;
+    private final String usertestingOrigin;
 
     public DataInitializer(
             MonitoredDomainRepository domainRepository,
             UserAccountRepository userRepository,
             PasswordEncoder passwordEncoder,
-            DomainIntelligenceService domainIntelligenceService) {
+            DomainIntelligenceService domainIntelligenceService,
+            @Value("${sentinel.waf.seed.usertesting-origin:http://127.0.0.1:8085}") String usertestingOrigin) {
         this.domainRepository = domainRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.domainIntelligenceService = domainIntelligenceService;
+        this.usertestingOrigin = usertestingOrigin;
     }
 
     @Override
     public void run(String... args) {
         seedUsers();
         seedDomains();
-        log.info("🛡️ SentinelGuard WAF & Threat Intelligence Platform initialized successfully.");
+        patchExistingDomainOrigins();
+        log.info("SentinelGuard WAF & Threat Intelligence Platform initialized successfully.");
     }
 
     private void seedUsers() {
@@ -57,12 +62,16 @@ public class DataInitializer implements CommandLineRunner {
             d0.setBlockedRequests(0L);
             d0.setCleanRequests(0L);
             d0.setHealthStatus("HEALTHY");
+            d0.setWafProtectionStatus("CONTROL_PLANE");
 
             MonitoredDomain d1 = new MonitoredDomain("usertesting.singamsettikrishna.in", "UserTesting Subdomain", "140.245.250.50", "India", "Hostinger Operations, UAB");
             d1.setTotalRequests(0L);
             d1.setBlockedRequests(0L);
             d1.setCleanRequests(0L);
             d1.setHealthStatus("HEALTHY");
+            d1.setOriginUrl(usertestingOrigin);
+            d1.setDnsPointsToWaf(true);
+            d1.setWafProtectionStatus("INLINE");
 
             MonitoredDomain d2 = new MonitoredDomain("singamsettikrishna.in", "Primary Portfolio WebApp", "140.245.250.50", "India", "Hostinger Operations, UAB");
             d2.setTotalRequests(0L);
@@ -83,5 +92,33 @@ public class DataInitializer implements CommandLineRunner {
                 }
             });
         }
+    }
+
+    private void patchExistingDomainOrigins() {
+        domainRepository.findByDomainNameIgnoreCase("usertesting.singamsettikrishna.in").ifPresent(d -> {
+            boolean dirty = false;
+            if (d.getOriginUrl() == null || d.getOriginUrl().isBlank()) {
+                d.setOriginUrl(usertestingOrigin);
+                dirty = true;
+            }
+            if (!Boolean.TRUE.equals(d.getDnsPointsToWaf())) {
+                d.setDnsPointsToWaf(true);
+                dirty = true;
+            }
+            domainIntelligenceService.applyProtectionStatus(d);
+            if (dirty || !"INLINE".equals(d.getWafProtectionStatus())) {
+                domainRepository.save(d);
+            }
+        });
+        domainRepository.findByDomainNameIgnoreCase("sentinel-guard.singamsettikrishna.in").ifPresent(d -> {
+            if (!"CONTROL_PLANE".equals(d.getWafProtectionStatus())) {
+                d.setWafProtectionStatus("CONTROL_PLANE");
+                domainRepository.save(d);
+            }
+        });
+        domainRepository.findByDomainNameIgnoreCase("singamsettikrishna.in").ifPresent(d -> {
+            domainIntelligenceService.applyProtectionStatus(d);
+            domainRepository.save(d);
+        });
     }
 }

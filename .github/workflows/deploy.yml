@@ -137,6 +137,17 @@ jobs:
               sleep 2
             done
 
+            echo "🌐 Installing host Nginx WAF catch-all from repo..."
+            if [ -f "${APP_DIR}/nginx/sentinelguard.conf" ] && command -v nginx >/dev/null 2>&1; then
+              sudo cp "${APP_DIR}/nginx/sentinelguard.conf" /etc/nginx/conf.d/sentinelguard.conf
+              for f in /etc/nginx/conf.d/usertesting.conf /etc/nginx/conf.d/usertesting.singamsettikrishna.in.conf /etc/nginx/sites-enabled/usertesting.singamsettikrishna.in /etc/nginx/sites-enabled/usertesting.conf; do
+                if [ -e "$f" ]; then sudo mv "$f" "${f}.disabled.$(date +%Y%m%d%H%M%S)" || true; fi
+              done
+              sudo nginx -t && sudo systemctl reload nginx
+            else
+              echo "⚠️ nginx not installed or sentinelguard.conf missing; skipped."
+            fi
+
             echo "🎉 Deployment successfully completed on OCI VM!"
           EOF
 

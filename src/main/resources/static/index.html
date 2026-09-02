@@ -745,6 +745,11 @@
                     <label class="block font-semibold text-gray-300 mb-1">Display Label / Name</label>
                     <input type="text" id="modal-domain-label" placeholder="e.g. Flipkart Core Gateway" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-gray-200 focus:outline-none focus:border-cyan-500">
                 </div>
+                <div>
+                    <label class="block font-semibold text-gray-300 mb-1">Origin URL (after WAF pass)</label>
+                    <input type="text" id="modal-domain-origin" placeholder="e.g. http://127.0.0.1:8085" class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-gray-200 font-mono focus:outline-none focus:border-cyan-500">
+                    <p class="text-[10px] text-gray-500 mt-1">Backend SentinelGuard reverse-proxies to after inspection. Required for live APIs.</p>
+                </div>
             </div>
             <div class="flex gap-2.5 pt-2">
                 <button onclick="closeAddDomainModal()" class="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold rounded-lg">Cancel</button>
@@ -806,6 +811,8 @@
                 <div>
                     <h3 class="font-bold text-white text-base sm:text-lg flex items-center gap-2" id="detail-domain-name">Domain Name</h3>
                     <p class="text-xs text-cyan-400 font-mono" id="detail-domain-ip">IP: --</p>
+                    <p class="text-[11px] text-gray-400 font-mono mt-1" id="detail-domain-origin">Origin: --</p>
+                    <p class="text-[11px] mt-1" id="detail-domain-waf-status"></p>
                 </div>
                 <div class="flex items-center gap-2">
                     <button onclick="rescanCurrentDomain()" id="btn-rescan-domain" class="px-2.5 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-xs rounded-lg flex items-center gap-1 transition active:scale-95">
@@ -1812,11 +1819,13 @@
                                     </div>
                                     <div class="flex items-center gap-1.5 shrink-0">
                                         <span class="px-1.5 py-0.5 text-[9px] sm:text-[10px] font-mono font-bold rounded ${d.healthStatus === 'HEALTHY' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}">${d.healthStatus || 'HEALTHY'}</span>
+                                        <span class="px-1.5 py-0.5 text-[9px] sm:text-[10px] font-mono font-bold rounded ${d.wafProtectionStatus === 'INLINE' ? 'bg-cyan-950 text-cyan-300 border border-cyan-800' : d.wafProtectionStatus === 'CONTROL_PLANE' ? 'bg-gray-800 text-gray-300 border border-gray-600' : 'bg-amber-950 text-amber-300 border border-amber-800'}">${d.wafProtectionStatus || 'DNS_PENDING'}</span>
                                     </div>
                                 </div>
 
                                 <div class="space-y-1 text-xs text-gray-400 font-mono mt-3">
                                     <p class="truncate">Primary IP: <span class="text-gray-200">${d.primaryIp || 'Resolving...'}</span></p>
+                                    <p class="truncate">Origin: <span class="text-gray-200">${d.originUrl || 'Not set'}</span></p>
                                     <p class="truncate">SSL Status: <span class="text-emerald-400">${d.sslDaysRemaining ? d.sslDaysRemaining + ' days left' : 'Active SSL'}</span></p>
                                     <p class="truncate">Registrar: <span class="text-gray-300">${d.registrar || 'Hostinger / Global'}</span></p>
                                 </div>
@@ -1924,7 +1933,12 @@
                     currentViewingDomainLabel = data.domain.displayName || data.domain.domainName;
 
                     document.getElementById('detail-domain-name').innerText = data.domain.domainName;
-                    document.getElementById('detail-domain-ip').innerText = `Primary IPv4: ${data.domain.primaryIp || 'N/A'} | Country: ${data.geo.country} ${data.geo.flag}`;
+                    document.getElementById('detail-domain-ip').innerText = `Primary IPv4: ${data.domain.primaryIp || 'N/A'} | Country: ${data.geo.country} ${data.geo.flag || ''}`;
+                    document.getElementById('detail-domain-origin').innerText = `Origin: ${data.domain.originUrl || '(not configured)'}`;
+                    const wafStatus = data.domain.wafProtectionStatus || 'DNS_PENDING';
+                    const statusEl = document.getElementById('detail-domain-waf-status');
+                    statusEl.innerText = `WAF: ${wafStatus}${data.domain.dnsPointsToWaf ? ' · A-record points at SentinelGuard' : ''}`;
+                    statusEl.className = wafStatus === 'INLINE' ? 'text-[11px] mt-1 text-emerald-400 font-mono' : 'text-[11px] mt-1 text-amber-400 font-mono';
 
                     // WHOIS
                     const whoisReg = data.whois && data.whois.registrar ? data.whois.registrar : 'N/A';
@@ -2001,6 +2015,7 @@
         async function submitAddDomain() {
             const domainName = document.getElementById('modal-domain-input').value;
             const displayName = document.getElementById('modal-domain-label').value;
+            const originUrl = document.getElementById('modal-domain-origin').value;
 
             if (!domainName) {
                 alert("Please enter a domain name!");
@@ -2011,7 +2026,7 @@
                 const res = await fetch('/api/domains', {
                     method: 'POST',
                     headers: getAuthHeaders(),
-                    body: JSON.stringify({ domainName, displayName })
+                    body: JSON.stringify({ domainName, displayName, originUrl })
                 });
 
                 if (res.ok) {

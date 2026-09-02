@@ -4,6 +4,7 @@ import com.krish.sentinel_guard.model.MonitoredDomain;
 import com.krish.sentinel_guard.repository.MonitoredDomainRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,18 +22,21 @@ public class DomainIntelligenceService {
     private final WhoisService whoisService;
     private final SslInspectorService sslInspectorService;
     private final GeoIpService geoIpService;
+    private final WafPublicIdentityService wafPublicIdentityService;
 
     public DomainIntelligenceService(
             MonitoredDomainRepository domainRepository,
             DnsLookupService dnsLookupService,
             WhoisService whoisService,
             SslInspectorService sslInspectorService,
-            GeoIpService geoIpService) {
+            GeoIpService geoIpService,
+            WafPublicIdentityService wafPublicIdentityService) {
         this.domainRepository = domainRepository;
         this.dnsLookupService = dnsLookupService;
         this.whoisService = whoisService;
         this.sslInspectorService = sslInspectorService;
         this.geoIpService = geoIpService;
+        this.wafPublicIdentityService = wafPublicIdentityService;
     }
 
     public record FullDomainReport(
@@ -46,20 +50,94 @@ public class DomainIntelligenceService {
 
     @Transactional
     public MonitoredDomain registerDomain(String rawDomain, String displayName) {
+        return registerDomain(rawDomain, displayName, null);
+    }
+
+    @Transactional
+    public MonitoredDomain registerDomain(String rawDomain, String displayName, String originUrl) {
         String cleanDomain = sanitizeDomain(rawDomain);
         Optional<MonitoredDomain> existing = domainRepository.findByDomainNameIgnoreCase(cleanDomain);
         if (existing.isPresent()) {
-            return existing.get();
+            MonitoredDomain domain = existing.get();
+            if (originUrl != null && !originUrl.isBlank()) {
+                domain.setOriginUrl(OriginUrlValidator.sanitize(originUrl));
+                applyProtectionStatus(domain);
+                return domainRepository.save(domain);
+            }
+            return domain;
         }
 
         MonitoredDomain domain = new MonitoredDomain();
         domain.setDomainName(cleanDomain);
         domain.setDisplayName(displayName != null && !displayName.trim().isEmpty() ? displayName : cleanDomain);
+        domain.setOriginUrl(OriginUrlValidator.sanitize(originUrl));
+        applyProtectionStatus(domain);
         domain = domainRepository.save(domain);
 
-        // Perform async initial analysis
         refreshDomainIntelligence(domain.getId());
         return domain;
+    }
+
+    @Transactional
+    public MonitoredDomain updateDomain(Long id, String displayName, String originUrl, Boolean isProtected) {
+        MonitoredDomain domain = domainRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Domain not found: " + id));
+        if (displayName != null && !displayName.isBlank()) {
+            domain.setDisplayName(displayName.trim());
+        }
+        if (originUrl != null) {
+            domain.setOriginUrl(originUrl.isBlank() ? null : OriginUrlValidator.sanitize(originUrl));
+        }
+        if (isProtected != null) {
+            domain.setIsProtected(isProtected);
+        }
+        applyProtectionStatus(domain);
+        return domainRepository.save(domain);
+    }
+
+    /**
+     * First-seen Host on this WAF IP (any DNS provider). Fast path: no blocking WHOIS/SSL.
+     * Background intel refresh verifies A-record against SentinelGuard's public IP.
+     */
+    @Transactional
+    public MonitoredDomain ensureInboundHost(String rawHost) {
+        String cleanDomain = sanitizeDomain(rawHost);
+        if (cleanDomain.isBlank() || cleanDomain.equals("unknown") || cleanDomain.equals("0.0.0.0")) {
+            throw new IllegalArgumentException("Invalid inbound host");
+        }
+
+        Optional<MonitoredDomain> existing = domainRepository.findByDomainNameIgnoreCase(cleanDomain);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        if (cleanDomain.startsWith("www.")) {
+            Optional<MonitoredDomain> apex = domainRepository.findByDomainNameIgnoreCase(cleanDomain.substring(4));
+            if (apex.isPresent()) {
+                return apex.get();
+            }
+        }
+
+        try {
+            MonitoredDomain domain = new MonitoredDomain();
+            domain.setDomainName(cleanDomain);
+            domain.setDisplayName(cleanDomain);
+            domain.setIsProtected(true);
+            domain.setDnsPointsToWaf(true);
+            domain.setWafProtectionStatus("NO_ORIGIN");
+            domain.setHealthStatus("UNKNOWN");
+            MonitoredDomain saved = domainRepository.save(domain);
+            Thread.ofVirtual().start(() -> {
+                try {
+                    refreshDomainIntelligence(saved.getId());
+                } catch (Exception e) {
+                    log.debug("Background intel for inbound host {}: {}", cleanDomain, e.getMessage());
+                }
+            });
+            return saved;
+        } catch (DataIntegrityViolationException e) {
+            return domainRepository.findByDomainNameIgnoreCase(cleanDomain)
+                    .orElseThrow(() -> e);
+        }
     }
 
     @Transactional
@@ -76,6 +154,9 @@ public class DomainIntelligenceService {
         if (!dns.ipv6List().isEmpty()) {
             domain.setIpv6(dns.ipv6List().get(0));
         }
+
+        domain.setDnsPointsToWaf(wafPublicIdentityService.pointsToWaf(dns.ipv4List(), dns.ipv6List()));
+        applyProtectionStatus(domain);
 
         // 2. GeoIP lookup
         if (dns.reachable() && !"Unknown".equals(dns.primaryIp())) {
@@ -143,6 +224,27 @@ public class DomainIntelligenceService {
         if (dns.allRecords().stream().noneMatch(r -> "MX".equals(r.type()))) score -= 5;
         if (dns.resolutionTimeMs() > 500) score -= 10;
         return Math.max(10, Math.min(100, score));
+    }
+
+    public void applyProtectionStatus(MonitoredDomain domain) {
+        if (domain == null) {
+            return;
+        }
+        String name = domain.getDomainName() != null ? domain.getDomainName().toLowerCase() : "";
+        if (name.startsWith("sentinel-guard.")) {
+            domain.setWafProtectionStatus("CONTROL_PLANE");
+            return;
+        }
+        boolean hasOrigin = domain.getOriginUrl() != null && !domain.getOriginUrl().isBlank();
+        if (!hasOrigin) {
+            domain.setWafProtectionStatus("NO_ORIGIN");
+            return;
+        }
+        if (Boolean.TRUE.equals(domain.getDnsPointsToWaf())) {
+            domain.setWafProtectionStatus("INLINE");
+        } else {
+            domain.setWafProtectionStatus("DNS_PENDING");
+        }
     }
 
     private String sanitizeDomain(String raw) {

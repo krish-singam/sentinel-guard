@@ -25,9 +25,13 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final WafTrafficInspectionFilter wafTrafficInspectionFilter;
+    private final ProtectedDomainHostMatcher protectedDomainHostMatcher;
 
-    public SecurityConfig(WafTrafficInspectionFilter wafTrafficInspectionFilter) {
+    public SecurityConfig(
+            WafTrafficInspectionFilter wafTrafficInspectionFilter,
+            ProtectedDomainHostMatcher protectedDomainHostMatcher) {
         this.wafTrafficInspectionFilter = wafTrafficInspectionFilter;
+        this.protectedDomainHostMatcher = protectedDomainHostMatcher;
     }
 
     @Bean
@@ -65,6 +69,7 @@ public class SecurityConfig {
             .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin))
             .addFilterBefore(wafTrafficInspectionFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers(protectedDomainHostMatcher).permitAll()
                 // Static resources & public endpoints
                 .requestMatchers(
                     "/", "/index.html", "/favicon.ico", "/css/**", "/js/**", "/images/**",
@@ -78,6 +83,7 @@ public class SecurityConfig {
 
                 // RBAC: Domain Management (Add/Delete) & IP Ban controls
                 .requestMatchers(HttpMethod.POST, "/api/domains/**").hasAnyRole("SUPER_ADMIN", "SECURITY_ANALYST")
+                .requestMatchers(HttpMethod.PUT, "/api/domains/**").hasAnyRole("SUPER_ADMIN", "SECURITY_ANALYST")
                 .requestMatchers(HttpMethod.DELETE, "/api/domains/**").hasRole("SUPER_ADMIN")
                 .requestMatchers("/api/firewall/**").hasAnyRole("SUPER_ADMIN", "SECURITY_ANALYST")
 

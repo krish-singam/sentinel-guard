@@ -92,10 +92,23 @@ See the complete step-by-step CI/CD and deployment guide:
 
 ## 🧪 Testing External Traffic & Live Inspection
 
-You can send real external exploit payloads from your terminal to verify real-time neutralization and live UI streaming:
+DNS can live **anywhere** (Hostinger, Cloudflare, Route53, GoDaddy). SentinelGuard does not talk to the registrar. The only requirement is an **A record** (and optionally AAAA) pointing at SentinelGuard's public IP (`140.245.250.50`). Nginx catch-all forwards that Host into the WAF; the first request auto-adds the domain to inventory and Threat Radar.
+
+Set **Origin URL** in the dashboard to the real app backend (the old Hostinger/VPS site). Without origin, attacks are still blocked and radared; clean traffic returns 502 `NO_ORIGIN`.
+
+With `usertesting.singamsettikrishna.in` A-record pointing at SentinelGuard, **all origin APIs** are inspected then proxied to that domain's `originUrl` (default `http://127.0.0.1:8085`).
 
 ```bash
-# SQL Injection
+# Live Host interception (JSON body) — blocked + Threat Radar
+curl -i -H "Host: usertesting.singamsettikrishna.in" \
+  -H "Content-Type: application/json" \
+  -d "{\"fullName\":\"Alex\",\"email\":\"a@b.c\",\"bio\":\"1' OR 1=1--\"}" \
+  http://localhost:8090/api/users
+
+# Clean origin API — proxied to user-testing
+curl -i -H "Host: usertesting.singamsettikrishna.in" http://localhost:8090/api/users
+
+# SQL Injection against the diagnostic gateway on the control-plane host
 curl -i "http://localhost:8090/api/traffic/gateway?domain=usertesting.singamsettikrishna.in&payload=1'%20OR%201=1--"
 
 # Remote Code Execution (RCE)

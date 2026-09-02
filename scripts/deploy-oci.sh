@@ -73,10 +73,45 @@ if [ "$READY" = false ]; then
     exit 1
 fi
 
-# Reload Nginx if present on host
-if systemctl is-active --quiet nginx; then
-    echo "🌐 Reloading host Nginx reverse proxy..."
-    sudo nginx -t && sudo systemctl reload nginx || echo "⚠️ Nginx test or reload encountered an issue."
+# Install / refresh host Nginx so any Host whose A record points here hits the WAF.
+# Git pull alone is not enough: nginx reads /etc/nginx, not the git working tree.
+if command -v nginx >/dev/null 2>&1; then
+    echo "🌐 Installing nginx/sentinelguard.conf onto the host..."
+    NGINX_SRC="${APP_DIR}/nginx/sentinelguard.conf"
+    NGINX_DST="/etc/nginx/conf.d/sentinelguard.conf"
+    if [ -f "$NGINX_SRC" ]; then
+        sudo cp "$NGINX_SRC" "$NGINX_DST"
+
+        # Old vhosts that send usertesting straight to :8080 (or a stale :8090 file) bypass/conflict with the WAF catch-all.
+        for f in \
+            /etc/nginx/conf.d/usertesting.conf \
+            /etc/nginx/conf.d/usertesting.singamsettikrishna.in.conf \
+            /etc/nginx/sites-enabled/usertesting.singamsettikrishna.in \
+            /etc/nginx/sites-enabled/usertesting.conf
+        do
+            if [ -e "$f" ]; then
+                echo "   Disabling conflicting vhost: $f"
+                sudo mv "$f" "${f}.disabled.$(date +%Y%m%d%H%M%S)" || true
+            fi
+        done
+
+        if sudo nginx -t; then
+            sudo systemctl reload nginx
+            echo "✅ Nginx installed ${NGINX_DST} and reloaded."
+        else
+            echo "❌ nginx -t failed. Common cause: missing TLS certs referenced in sentinelguard.conf"
+            echo "   HTTP catch-all still needs a valid conf. Check:"
+            echo "     ls /etc/letsencrypt/live/"
+            echo "   If only usertesting certs exist, either:"
+            echo "     sudo certbot --nginx -d sentinel-guard.singamsettikrishna.in"
+            echo "   or temporarily comment the listen 443 blocks, then: sudo nginx -t && sudo systemctl reload nginx"
+            exit 1
+        fi
+    else
+        echo "⚠️ ${NGINX_SRC} not found in the repo checkout. Skipping nginx install."
+    fi
+else
+    echo "⚠️ nginx is not installed on this VM. App is on :8090 only until you install nginx."
 fi
 
 echo "======================================================================"

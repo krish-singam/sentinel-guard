@@ -6,8 +6,13 @@ import com.krish.sentinel_guard.repository.BannedIpRepository;
 import com.krish.sentinel_guard.repository.MonitoredDomainRepository;
 import com.krish.sentinel_guard.repository.SecurityIncidentRepository;
 import com.krish.sentinel_guard.service.AlertNotificationService;
+import com.krish.sentinel_guard.service.DomainIntelligenceService;
 import com.krish.sentinel_guard.service.GeoIpService;
+import com.krish.sentinel_guard.service.OriginProxyService;
+import com.krish.sentinel_guard.service.WafHostClassificationService;
 import com.krish.sentinel_guard.waf.detector.WafInspectionEngine;
+import com.krish.sentinel_guard.waf.payload.PayloadNormalizer;
+import com.krish.sentinel_guard.waf.payload.PayloadSurface;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,14 +25,18 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
- * Real-time WAF Servlet Filter intercepting live incoming HTTP traffic
- * from external clients, reverse proxies, and direct domain hits.
+ * Inline WAF for every Host that resolves to this box (any DNS provider).
+ * Control-plane Hosts serve the dashboard. Data-plane Hosts are inspected
+ * then reverse-proxied to the domain's originUrl when configured.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -41,6 +50,10 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
     private final BannedIpRepository bannedIpRepository;
     private final AlertNotificationService alertService;
     private final GeoIpService geoIpService;
+    private final WafHostClassificationService hostClassification;
+    private final DomainIntelligenceService domainIntelligenceService;
+    private final PayloadNormalizer payloadNormalizer;
+    private final OriginProxyService originProxyService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public WafTrafficInspectionFilter(
@@ -49,13 +62,21 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
             MonitoredDomainRepository domainRepository,
             BannedIpRepository bannedIpRepository,
             AlertNotificationService alertService,
-            GeoIpService geoIpService) {
+            GeoIpService geoIpService,
+            WafHostClassificationService hostClassification,
+            DomainIntelligenceService domainIntelligenceService,
+            PayloadNormalizer payloadNormalizer,
+            OriginProxyService originProxyService) {
         this.wafEngine = wafEngine;
         this.incidentRepository = incidentRepository;
         this.domainRepository = domainRepository;
         this.bannedIpRepository = bannedIpRepository;
         this.alertService = alertService;
         this.geoIpService = geoIpService;
+        this.hostClassification = hostClassification;
+        this.domainIntelligenceService = domainIntelligenceService;
+        this.payloadNormalizer = payloadNormalizer;
+        this.originProxyService = originProxyService;
     }
 
     @Override
@@ -65,26 +86,38 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         String method = request.getMethod();
         String queryString = request.getQueryString();
-
-        // Extract client IP (handle proxies & load balancers)
         String clientIp = resolveClientIp(request);
+        String hostDomain = hostClassification.resolveHost(request);
 
-        // Extract host domain name
-        String hostDomain = resolveHostDomain(request);
-
-        // Allow internal control-plane management APIs and static resources to pass directly to Spring Security
-        // UNLESS they contain query string payloads (which might be attacks against UI routers)
-        if (isInternalControlPlaneApi(path) || (isStaticResource(path) && (queryString == null || queryString.trim().isEmpty()))) {
-            filterChain.doFilter(request, response);
+        if (hostClassification.isControlPlaneHost(hostDomain)) {
+            if (isInternalControlPlaneApi(path) || (isStaticResource(path) && (queryString == null || queryString.trim().isEmpty()))) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+            CachedBodyHttpServletRequest cachedRequest = new CachedBodyHttpServletRequest(request);
+            WafInspectionEngine.WafEvaluationResult eval = inspectRequest(cachedRequest, clientIp, method, path, queryString);
+            if (!eval.allowed()) {
+                recordAndBlock(request, response, eval, clientIp, hostDomain, path, queryString, method, null);
+                return;
+            }
+            filterChain.doFilter(cachedRequest, response);
             return;
         }
 
-        // 1. Check if client IP is currently jailed in Firewall (data-plane traffic)
+        MonitoredDomain domain = hostClassification.findDomain(hostDomain).orElse(null);
+        if (domain == null && !hostClassification.looksLikeLiteralIp(hostDomain)) {
+            try {
+                domain = domainIntelligenceService.ensureInboundHost(hostDomain);
+            } catch (IllegalArgumentException e) {
+                domain = null;
+            }
+        }
+
         Optional<BannedIp> activeBan = bannedIpRepository.findByIpAddressAndActiveTrue(clientIp);
         if (activeBan.isPresent()) {
             BannedIp ban = activeBan.get();
             if (ban.getBannedUntil().isAfter(LocalDateTime.now())) {
-                log.warn("🛡️ WAF BLOCKED: Banned IP {} tried accessing {}", clientIp, path);
+                log.warn("WAF BLOCKED: Banned IP {} tried accessing {} on {}", clientIp, path, hostDomain);
                 writeWafBlockResponse(response, 403, "IP_BANNED", "Client IP address is jailed in firewall jail",
                         ban.getReason(), clientIp, hostDomain);
                 return;
@@ -94,7 +127,113 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
             }
         }
 
-        // 2. Collect Headers for Inspection
+        CachedBodyHttpServletRequest cachedRequest = new CachedBodyHttpServletRequest(request);
+        WafInspectionEngine.WafEvaluationResult eval = inspectRequest(cachedRequest, clientIp, method, path, queryString);
+
+        if (!eval.allowed()) {
+            recordAndBlock(request, response, eval, clientIp, hostDomain, path, queryString, method, domain);
+            return;
+        }
+
+        if (domain != null) {
+            updateDomainMetrics(domain.getId(), true);
+        }
+
+        String originUrl = domain != null ? domain.getOriginUrl() : null;
+        if (originUrl == null || originUrl.isBlank()) {
+            writeWafBlockResponse(response, 502, "NO_ORIGIN",
+                    "No originUrl configured for this domain",
+                    "RULE_NO_ORIGIN", clientIp, hostDomain);
+            return;
+        }
+
+        try {
+            originProxyService.forward(cachedRequest, response, originUrl);
+        } catch (Exception e) {
+            log.warn("Origin proxy failed for {} -> {}: {}", hostDomain, originUrl, e.getMessage());
+            writeWafBlockResponse(response, 502, "ORIGIN_UNREACHABLE",
+                    "Origin backend is unreachable: " + originUrl,
+                    "RULE_ORIGIN_DOWN", clientIp, hostDomain);
+        }
+    }
+
+    private WafInspectionEngine.WafEvaluationResult inspectRequest(
+            CachedBodyHttpServletRequest cachedRequest,
+            String clientIp,
+            String method,
+            String path,
+            String queryString) {
+        Map<String, String> headers = collectHeaders(cachedRequest);
+        List<PayloadSurface> surfaces = payloadNormalizer.normalize(
+                path,
+                queryString,
+                headers,
+                cachedRequest.getCachedBody(),
+                cachedRequest.getContentType(),
+                cachedRequest.getCachedCharacterEncoding()
+        );
+        return wafEngine.inspectSurfaces(clientIp, method, surfaces);
+    }
+
+    private void recordAndBlock(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            WafInspectionEngine.WafEvaluationResult eval,
+            String clientIp,
+            String hostDomain,
+            String path,
+            String queryString,
+            String method,
+            MonitoredDomain domain) throws IOException {
+
+        log.warn("WAF INTERCEPTED ATTACK: Type={} | Rule={} | Target={} | IP={} | Path={}",
+                eval.threatType(), eval.ruleTriggered(), hostDomain, clientIp, path);
+
+        GeoIpService.GeoLocation geo = geoIpService.resolve(clientIp);
+
+        SecurityIncident incident = new SecurityIncident(
+                hostDomain,
+                clientIp,
+                eval.threatType(),
+                eval.severity(),
+                eval.action(),
+                eval.threatScore(),
+                eval.ruleTriggered(),
+                eval.matchedSnippet(),
+                method,
+                path + (queryString != null ? "?" + queryString : "")
+        );
+        if (domain != null) {
+            incident.setDomainId(domain.getId());
+        }
+        incident.setQueryString(queryString);
+        incident.setClientCountry(geo.country());
+        incident.setClientCountryCode(geo.countryCode());
+        incident.setClientCity(geo.city());
+        incident.setUserAgent(request.getHeader("User-Agent"));
+        incident.setTimestamp(LocalDateTime.now());
+
+        SecurityIncident saved = incidentRepository.save(incident);
+
+        try {
+            alertService.dispatchThreatAlert(saved);
+        } catch (Exception e) {
+            log.debug("Alert dispatch error: {}", e.getMessage());
+        }
+
+        if (domain != null) {
+            updateDomainMetrics(domain.getId(), false);
+        }
+
+        if (eval.action() == ActionTaken.IP_BANNED) {
+            jailOffendingIp(clientIp, geo.country(), eval.reason(), eval.threatType());
+        }
+
+        writeWafBlockResponse(response, 403, eval.action().name(), eval.reason(),
+                eval.ruleTriggered(), clientIp, hostDomain);
+    }
+
+    private Map<String, String> collectHeaders(HttpServletRequest request) {
         Map<String, String> headers = new HashMap<>();
         Enumeration<String> headerNames = request.getHeaderNames();
         if (headerNames != null) {
@@ -103,77 +242,7 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
                 headers.put(name, request.getHeader(name));
             }
         }
-
-        // Decode query string for accurate payload detection
-        String decodedQuery = "";
-        if (queryString != null) {
-            try {
-                decodedQuery = URLDecoder.decode(queryString, StandardCharsets.UTF_8);
-            } catch (Exception e) {
-                decodedQuery = queryString;
-            }
-        }
-
-        // 3. Perform Deep WAF Packet Inspection
-        WafInspectionEngine.WafEvaluationResult eval = wafEngine.inspect(
-                clientIp, method, path, decodedQuery, headers, null
-        );
-
-        if (!eval.allowed()) {
-            // Intercept and Block
-            log.warn("🚨 WAF INTERCEPTED ATTACK: Type={} | Rule={} | Target={} | IP={}",
-                    eval.threatType(), eval.ruleTriggered(), hostDomain, clientIp);
-
-            // Resolve GeoIP location
-            GeoIpService.GeoLocation geo = geoIpService.resolve(clientIp);
-
-            // Record Security Incident in DB
-            SecurityIncident incident = new SecurityIncident(
-                    hostDomain,
-                    clientIp,
-                    eval.threatType(),
-                    eval.severity(),
-                    eval.action(),
-                    eval.threatScore(),
-                    eval.ruleTriggered(),
-                    eval.matchedSnippet(),
-                    method,
-                    path + (queryString != null ? "?" + queryString : "")
-            );
-            incident.setClientCountry(geo.country());
-            incident.setClientCountryCode(geo.countryCode());
-            incident.setClientCity(geo.city());
-            incident.setUserAgent(request.getHeader("User-Agent"));
-            incident.setTimestamp(LocalDateTime.now());
-
-            SecurityIncident saved = incidentRepository.save(incident);
-
-            // Trigger Alerts
-            try {
-                alertService.dispatchThreatAlert(saved);
-            } catch (Exception e) {
-                log.debug("Alert dispatch error: {}", e.getMessage());
-            }
-
-            // Update Domain Stats
-            updateDomainMetrics(hostDomain, false);
-
-            // If DoS or High-Severity repeatedly, Jail IP
-            if (eval.action() == ActionTaken.IP_BANNED) {
-                jailOffendingIp(clientIp, geo.country(), eval.reason(), eval.threatType());
-            }
-
-            // Return 403 Forbidden with WAF block signature
-            writeWafBlockResponse(response, 403, eval.action().name(), eval.reason(),
-                    eval.ruleTriggered(), clientIp, hostDomain);
-            return;
-        }
-
-        // Clean request - record metrics
-        updateDomainMetrics(hostDomain, true);
-
-        // Proceed to application handler
-        filterChain.doFilter(request, response);
+        return headers;
     }
 
     private String resolveClientIp(HttpServletRequest request) {
@@ -186,22 +255,6 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
             return realIp.trim();
         }
         return request.getRemoteAddr();
-    }
-
-    private String resolveHostDomain(HttpServletRequest request) {
-        String host = request.getHeader("X-Forwarded-Host");
-        if (host != null && !host.trim().isEmpty()) {
-            return sanitizeHost(host);
-        }
-        host = request.getHeader("Host");
-        if (host != null && !host.trim().isEmpty()) {
-            return sanitizeHost(host);
-        }
-        return request.getServerName();
-    }
-
-    private String sanitizeHost(String host) {
-        return host.split(":")[0].trim().toLowerCase();
     }
 
     private boolean isStaticResource(String path) {
@@ -225,12 +278,10 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
                path.startsWith("/api/auth");
     }
 
-    private void updateDomainMetrics(String hostDomain, boolean clean) {
+    private void updateDomainMetrics(Long domainId, boolean clean) {
         Thread.ofVirtual().start(() -> {
             try {
-                Optional<MonitoredDomain> domainOpt = domainRepository.findByDomainNameIgnoreCase(hostDomain);
-                if (domainOpt.isPresent()) {
-                    MonitoredDomain d = domainOpt.get();
+                domainRepository.findById(domainId).ifPresent(d -> {
                     d.setTotalRequests((d.getTotalRequests() != null ? d.getTotalRequests() : 0) + 1);
                     if (clean) {
                         d.setCleanRequests((d.getCleanRequests() != null ? d.getCleanRequests() : 0) + 1);
@@ -238,7 +289,7 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
                         d.setBlockedRequests((d.getBlockedRequests() != null ? d.getBlockedRequests() : 0) + 1);
                     }
                     domainRepository.save(d);
-                }
+                });
             } catch (Exception e) {
                 log.debug("Failed to update domain metrics: {}", e.getMessage());
             }
@@ -251,7 +302,7 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
                 if (bannedIpRepository.findByIpAddressAndActiveTrue(ip).isEmpty()) {
                     BannedIp ban = new BannedIp(ip, country != null ? country : "Unknown", reason, threatType, 1800);
                     bannedIpRepository.save(ban);
-                    log.info("🔒 IP JAILED AUTOMATICALLY BY WAF FILTER: {}", ip);
+                    log.info("IP JAILED AUTOMATICALLY BY WAF FILTER: {}", ip);
                 }
             } catch (Exception e) {
                 log.debug("Auto-jail failed: {}", e.getMessage());
@@ -265,11 +316,11 @@ public class WafTrafficInspectionFilter extends OncePerRequestFilter {
         response.setContentType("application/json");
         response.setHeader("X-WAF-Protection", "SentinelGuard-Enterprise");
         response.setHeader("X-WAF-Action", action);
-        response.setHeader("X-WAF-Rule", rule);
+        response.setHeader("X-WAF-Rule", rule != null ? rule : "");
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", status);
-        body.put("error", "Forbidden - WAF Interception");
+        body.put("error", status == 403 ? "Forbidden - WAF Interception" : (status == 404 ? "Unknown host" : "Bad Gateway"));
         body.put("wafEngine", "SentinelGuard Intelligent WAF v1.0");
         body.put("actionTaken", action);
         body.put("reason", reason);
